@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --primary: #1a6b5a; --primary-light: #e8f5f1; --primary-mid: #2d9c80;
+  --bg: #f5f7f6; --card: #ffffff; --text: #1a2421; --text-muted: #6b8178;
+  --border: #dde8e4; --danger: #e84040; --radius: 18px; --radius-sm: 12px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+body { font-family: 'Sarabun', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; overflow-x: hidden; }
+
+.layout { display: flex; flex-direction: column; min-height: 100vh; }
+
+.header { background: var(--primary); color: #fff; padding: 20px 32px 18px; position: sticky; top: 0; z-index: 100; }
+.header-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.header h1 { font-size: 26px; font-weight: 700; }
+.add-clinic-btn { background: rgba(255,255,255,0.18); border: none; color: #fff; padding: 10px 20px; border-radius: 24px; font-size: 15px; font-weight: 600; font-family: 'Sarabun', sans-serif; cursor: pointer; }
+.add-clinic-btn:active { background: rgba(255,255,255,0.30); }
+.month-nav { display: flex; align-items: center; gap: 20px; }
+.nav-btn { background: rgba(255,255,255,0.18); border: none; color: #fff; width: 44px; height: 44px; border-radius: 50%; font-size: 22px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.nav-btn:active { background: rgba(255,255,255,0.30); }
+.month-label { font-size: 20px; font-weight: 600; min-width: 180px; text-align: center; }
+
+.weekdays { display: grid; grid-template-columns: repeat(7,1fr); background: var(--primary); padding: 4px 16px 12px; }
+.weekday { text-align: center; font-size: 14px; font-weight: 600; color: rgba(255,255,255,0.75); padding: 4px 0; }
+
+.calendar-wrap { padding: 12px 16px 120px; }
+.calendar-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 6px; }
+.day-cell { background: var(--card); border-radius: var(--radius-sm); min-height: 90px; display: flex; flex-direction: column; align-items: center; padding: 10px 4px 6px; cursor: pointer; border: 2px solid transparent; transition: border-color 0.15s, background 0.15s; position: relative; overflow: hidden; }
+.day-cell:active { opacity: 0.8; }
+.day-cell.today { border-color: var(--primary); }
+.day-cell.has-data { background: var(--primary-light); }
+.day-cell.empty { background: transparent; cursor: default; pointer-events: none; }
+.day-num { font-size: 17px; font-weight: 600; color: var(--text); line-height: 1; }
+.day-cell.today .day-num { background: var(--primary); color: #fff; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 15px; }
+.day-cell.sunday .day-num { color: #c0392b; }
+.day-cell.saturday .day-num { color: #2471a3; }
+.day-income { font-size: 12px; font-weight: 700; color: var(--primary); margin-top: 4px; text-align: center; }
+.day-clinic-badge { font-size: 10px; font-weight: 800; color: #fff; border-radius: 4px; padding: 2px 5px; margin-top: 3px; text-align: center; max-width: 96%; }
+
+.summary-bar { position: fixed; bottom: 0; left: 0; right: 0; background: var(--primary); color: #fff; padding: 16px 32px 24px; z-index: 90; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 -4px 24px rgba(26,107,90,0.18); }
+.summary-label { font-size: 15px; font-weight: 500; opacity: 0.8; }
+.summary-total { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; }
+.summary-sub { font-size: 13px; opacity: 0.7; margin-top: 2px; }
+
+.overlay { display: none; position: fixed; inset: 0; background: rgba(15,30,25,0.45); z-index: 200; align-items: flex-end; justify-content: center; }
+.overlay.open { display: flex; }
+.sheet { background: var(--card); border-radius: 28px 28px 0 0; width: 100%; max-width: 780px; margin: 0 auto; padding: 0 0 40px; animation: slideUp 0.28s cubic-bezier(0.34,1.56,0.64,1); max-height: 92vh; overflow-y: auto; }
+@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+.sheet-handle { width: 48px; height: 5px; background: var(--border); border-radius: 3px; margin: 14px auto 0; }
+.sheet-header { padding: 18px 28px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+.sheet-title { font-size: 20px; font-weight: 700; color: var(--primary); }
+.sheet-date { font-size: 15px; color: var(--text-muted); margin-top: 3px; }
+.close-btn { background: var(--bg); border: none; width: 38px; height: 38px; border-radius: 50%; font-size: 18px; cursor: pointer; color: var(--text-muted); display: flex; align-items: center; justify-content: center; }
+
+.form-body { padding: 18px 28px; }
+.form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 20px; }
+.form-group { margin-bottom: 16px; }
+.form-label { font-size: 14px; font-weight: 600; color: var(--text-muted); margin-bottom: 7px; display: flex; align-items: center; gap: 6px; }
+.input-suffix { position: relative; }
+.form-input { width: 100%; padding: 13px 58px 13px 16px; border: 1.5px solid var(--border); border-radius: var(--radius-sm); font-size: 17px; font-family: 'Sarabun', sans-serif; color: var(--text); background: var(--bg); outline: none; -webkit-appearance: none; transition: border-color 0.15s; }
+.form-input:focus { border-color: var(--primary-mid); background: #fff; }
+.form-input:disabled { opacity: 0.35; background: #e8ede9; cursor: not-allowed; }
+.suffix-label { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); font-size: 13px; color: var(--text-muted); font-weight: 500; pointer-events: none; }
+
+.clinic-selector-wrap { padding: 14px 28px 0; }
+.clinic-selector-label { font-size: 12px; font-weight: 700; color: var(--text-muted); margin-bottom: 7px; text-transform: uppercase; letter-spacing: 0.5px; }
+.clinic-selector { width: 100%; padding: 13px 16px; border: 1.5px solid var(--border); border-radius: var(--radius-sm); font-size: 16px; font-family: 'Sarabun', sans-serif; color: var(--text); background: var(--bg); outline: none; -webkit-appearance: none; cursor: pointer; }
+.clinic-selector:focus { border-color: var(--primary-mid); }
+
+.section-divider { display: flex; align-items: center; gap: 10px; margin: 4px 0 16px; }
+.section-divider-line { flex: 1; height: 1px; background: var(--border); }
+.section-divider-label { font-size: 12px; font-weight: 700; color: var(--text-muted); white-space: nowrap; }
+
+.lump-section { background: #fff8ec; border: 1.5px solid #f5c97a; border-radius: var(--radius-sm); padding: 14px 16px; margin-bottom: 16px; }
+.lump-label { font-size: 14px; font-weight: 700; color: #b06c00; margin-bottom: 8px; }
+.lump-input { width: 100%; padding: 13px 58px 13px 16px; border: 1.5px solid #f5c97a; border-radius: var(--radius-sm); font-size: 17px; font-family: 'Sarabun', sans-serif; color: var(--text); background: #fff; outline: none; -webkit-appearance: none; }
+.lump-input:focus { border-color: #e6a020; }
+.lump-input:disabled { opacity: 0.35; background: #eee; cursor: not-allowed; }
+.lump-hint { font-size: 12px; color: #b06c00; margin-top: 6px; }
+
+.result-card { margin: 0 28px 18px; background: var(--primary-light); border-radius: var(--radius); padding: 18px; border: 1.5px solid rgba(45,156,128,0.25); }
+.result-title { font-size: 13px; font-weight: 700; color: var(--primary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 14px; }
+.result-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; font-size: 16px; }
+.result-row-label { color: var(--text-muted); }
+.result-row-val { font-weight: 600; color: var(--text); }
+.result-divider { height: 1px; background: rgba(45,156,128,0.2); margin: 10px 0; }
+.result-total-row { display: flex; justify-content: space-between; align-items: center; padding-top: 4px; }
+.result-total-label { font-size: 17px; font-weight: 700; color: var(--primary); }
+.result-total-val { font-size: 24px; font-weight: 700; color: var(--primary); }
+
+.btn-row { display: flex; gap: 12px; padding: 0 28px; }
+.btn { flex: 1; padding: 16px; border-radius: var(--radius-sm); font-size: 17px; font-weight: 700; font-family: 'Sarabun', sans-serif; cursor: pointer; border: none; transition: opacity 0.15s, transform 0.1s; }
+.btn:active { transform: scale(0.97); opacity: 0.85; }
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-danger { background: #fde8e8; color: var(--danger); flex: 0; padding: 16px 22px; }
+
+/* CLINIC MANAGER */
+.mgr-tabs { display: flex; gap: 10px; padding: 14px 28px 0; }
+.mgr-tab { flex: 1; padding: 11px; border: none; border-radius: 24px; font-size: 15px; font-weight: 600; font-family: 'Sarabun', sans-serif; cursor: pointer; background: var(--bg); color: var(--text-muted); }
+.mgr-tab.active { background: var(--primary); color: #fff; }
+
+.clinic-list { padding: 12px 20px 8px; }
+.clinic-item { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-radius: var(--radius-sm); border: 1.5px solid var(--border); margin-bottom: 10px; background: var(--card); }
+.clinic-dot { width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; color: #fff; }
+.clinic-item-info { flex: 1; }
+.clinic-item-name { font-size: 17px; font-weight: 700; }
+.clinic-item-sub { font-size: 13px; color: var(--text-muted); margin-top: 3px; }
+.clinic-item-actions { display: flex; gap: 6px; }
+.clinic-item-btn { background: var(--bg); border: 1.5px solid var(--border); border-radius: 8px; font-size: 14px; cursor: pointer; padding: 6px 12px; font-family: 'Sarabun', sans-serif; color: var(--text-muted); font-weight: 600; }
+.clinic-item-btn:active { opacity: 0.7; }
+.clinic-item-btn.edit { color: var(--primary); border-color: var(--primary-mid); }
+.clinic-item-btn.del { color: var(--danger); border-color: #f5b7b7; }
+.no-clinic { text-align: center; padding: 36px 20px; color: var(--text-muted); font-size: 16px; line-height: 1.6; }
+
+.color-grid { display: grid; grid-template-columns: repeat(10,1fr); gap: 8px; margin-top: 6px; }
+.color-swatch { width: 100%; aspect-ratio: 1; border-radius: 50%; cursor: pointer; border: 3px solid transparent; transition: transform 0.15s, border-color 0.15s; }
+.color-swatch.selected { border-color: #222; transform: scale(1.18); }
+.color-swatch:active { transform: scale(0.88); }
+
+.edit-banner { background: #fff8ec; border: 1.5px solid #f5c97a; border-radius: var(--radius-sm); padding: 10px 16px; margin: 12px 28px 0; display: flex; align-items: center; justify-content: space-between; }
+.edit-banner-text { font-size: 14px; font-weight: 600; color: #b06c00; }
+.edit-banner-cancel { background: none; border: none; font-size: 13px; color: #b06c00; cursor: pointer; font-family: 'Sarabun', sans-serif; text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="layout">
+
+<div class="header">
+  <div class="header-top">
+    <h1>🏥 เวรคลินิก</h1>
+    <button class="add-clinic-btn" onclick="openClinicMgr()">＋ จัดการคลินิก</button>
+  </div>
+  <div class="month-nav">
+    <button class="nav-btn" onclick="changeMonth(-1)">‹</button>
+    <span class="month-label" id="monthLabel"></span>
+    <button class="nav-btn" onclick="changeMonth(1)">›</button>
+  </div>
+</div>
+<div class="weekdays">
+  <div class="weekday">อาทิตย์</div><div class="weekday">จันทร์</div><div class="weekday">อังคาร</div>
+  <div class="weekday">พุธ</div><div class="weekday">พฤหัสบดี</div><div class="weekday">ศุกร์</div><div class="weekday">เสาร์</div>
+</div>
+<div class="calendar-wrap"><div class="calendar-grid" id="calGrid"></div></div>
+
+<div class="summary-bar">
+  <div>
+    <div class="summary-label">รวมเดือนนี้</div>
+    <div class="summary-sub" id="summaryCount">0 เวร</div>
+  </div>
+  <div style="text-align:right">
+    <div style="font-size:14px;opacity:0.7;font-weight:500;">รายได้ทั้งหมด</div>
+    <div class="summary-total" id="summaryTotal">฿0</div>
+  </div>
+</div>
+
+<!-- DAY SHEET -->
+<div class="overlay" id="overlay" onclick="handleOvClick(event)">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-header">
+      <div><div class="sheet-title" id="sheetTitle"></div><div class="sheet-date" id="sheetDate"></div></div>
+      <button class="close-btn" onclick="closeSheet()">✕</button>
+    </div>
+    <div class="clinic-selector-wrap">
+      <div class="clinic-selector-label">🏷 เลือกคลินิก (ถ้ามี)</div>
+      <select class="clinic-selector" id="clinicSel" onchange="applyPreset()">
+        <option value="">— ไม่ระบุ / กรอกเอง —</option>
+      </select>
+    </div>
+    <div class="form-body">
+      <div id="normalFields">
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label">💰 ค่านั่งต่อชั่วโมง</label>
+            <div class="input-suffix"><input class="form-input" type="number" id="inHourRate" placeholder="เช่น 500" inputmode="decimal" oninput="calcPreview()"><span class="suffix-label">บาท/ชม</span></div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">⏰ จำนวนชั่วโมงที่นั่ง</label>
+            <div class="input-suffix"><input class="form-input" type="number" id="inHours" placeholder="เช่น 4" inputmode="decimal" oninput="calcPreview()"><span class="suffix-label">ชม</span></div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">💉 ราคาหัตถการรวม</label>
+            <div class="input-suffix"><input class="form-input" type="number" id="inProcedure" placeholder="เช่น 10000" inputmode="decimal" oninput="calcPreview()"><span class="suffix-label">บาท</span></div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">👨‍⚕️ % Doctor Fee จากหัตถการ</label>
+            <div class="input-suffix"><input class="form-input" type="number" id="inDoctorPct" placeholder="เช่น 30" inputmode="decimal" oninput="calcPreview()"><span class="suffix-label">%</span></div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">🤖 ค่าทำเครื่อง</label>
+            <div class="input-suffix"><input class="form-input" type="number" id="inMachine" placeholder="เช่น 5000" inputmode="decimal" oninput="calcPreview()"><span class="suffix-label">บาท</span></div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">% Doctor จากเครื่อง</label>
+            <div class="input-suffix"><input class="form-input" type="number" id="inMachinePct" placeholder="เช่น 20" inputmode="decimal" oninput="calcPreview()"><span class="suffix-label">%</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="section-divider"><div class="section-divider-line"></div><div class="section-divider-label">หรือ เวรเหมา</div><div class="section-divider-line"></div></div>
+      <div class="lump-section">
+        <div class="lump-label">💵 ค่าเวรเหมา (ไม่นับชม./DF)</div>
+        <div class="input-suffix"><input class="lump-input" type="number" id="inLump" placeholder="เช่น 3000" inputmode="decimal" oninput="onLumpChange()"><span class="suffix-label" style="color:#b06c00;">บาท</span></div>
+        <div class="lump-hint">* ถ้ากรอกช่องนี้ ช่องด้านบนจะถูกล็อกอัตโนมัติ</div>
+      </div>
+    </div>
+    <div class="result-card">
+      <div class="result-title">สรุปค่าเวร</div>
+      <div class="result-row" id="rowSit"><span class="result-row-label">ค่านั่ง</span><span class="result-row-val" id="rSitting">—</span></div>
+      <div class="result-row" id="rowDF"><span class="result-row-label">Doctor Fee (หัตถการ)</span><span class="result-row-val" id="rDoctor">—</span></div>
+      <div class="result-row" id="rowMach"><span class="result-row-label">Doctor Fee (เครื่อง)</span><span class="result-row-val" id="rMachine">—</span></div>
+      <div class="result-row" id="rowLump" style="display:none"><span class="result-row-label">ค่าเวรเหมา</span><span class="result-row-val" id="rLump">—</span></div>
+      <div class="result-divider"></div>
+      <div class="result-total-row"><span class="result-total-label">รวมทั้งหมด</span><span class="result-total-val" id="rTotal">฿0</span></div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-danger" onclick="clearDay()" id="btnClear" style="display:none">ลบ</button>
+      <button class="btn btn-primary" onclick="saveDay()">บันทึก ✓</button>
+    </div>
+  </div>
+</div>
+
+<!-- CLINIC MANAGER SHEET -->
+<div class="overlay" id="mgrOverlay" onclick="handleMgrClick(event)">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-header">
+      <div><div class="sheet-title" id="mgrSheetTitle">จัดการคลินิก</div></div>
+      <button class="close-btn" onclick="closeClinicMgr()">✕</button>
+    </div>
+    <div class="mgr-tabs">
+      <button class="mgr-tab active" id="mgrTabList" onclick="switchMgrTab('list')">รายการคลินิก</button>
+      <button class="mgr-tab" id="mgrTabAdd" onclick="switchMgrTab('add')">＋ เพิ่ม / แก้ไข</button>
+    </div>
+
+    <div id="mgrList">
+      <div class="clinic-list" id="clinicListEl"></div>
+    </div>
+
+    <div id="mgrAdd" style="display:none">
+      <div id="editBanner" style="display:none" class="edit-banner">
+        <span class="edit-banner-text" id="editBannerText">กำลังแก้ไข: —</span>
+        <button class="edit-banner-cancel" onclick="cancelEdit()">ยกเลิกการแก้ไข</button>
+      </div>
+      <div class="form-body">
+        <div class="form-grid-2">
+          <div class="form-group" style="grid-column:1/-1">
+            <label class="form-label">ชื่อคลินิก (EN เท่านั้น)</label>
+            <div class="input-suffix"><input class="form-input" type="text" id="cName" placeholder="เช่น Skin Glow Clinic" oninput="this.value=this.value.replace(/[^a-zA-Z0-9 &\-\.]/g,'');genAbbr()"></div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">ชื่อย่อ (max 5 ตัว)</label>
+            <div class="input-suffix"><input class="form-input" type="text" id="cAbbr" placeholder="เช่น SGC" maxlength="5" oninput="this.value=this.value.replace(/[^a-zA-Z0-9]/g,'').toUpperCase()"></div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">สีประจำคลินิก</label>
+            <div class="color-grid" id="colorGrid"></div>
+          </div>
+        </div>
+        <div class="section-divider" style="margin:4px 0 14px;"><div class="section-divider-line"></div><div class="section-divider-label">ค่าเริ่มต้น (แก้ไขรายวันได้)</div><div class="section-divider-line"></div></div>
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label">💰 ค่านั่งต่อชั่วโมง</label>
+            <div class="input-suffix"><input class="form-input" type="number" id="cHourRate" placeholder="เช่น 500" inputmode="decimal"><span class="suffix-label">บาท/ชม</span></div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">⏰ จำนวนชั่วโมง (ปกติ)</label>
+            <div class="input-suffix"><input class="form-input" type="number" id="cHours" placeholder="เช่น 6" inputmode="decimal"><span class="suffix-label">ชม</span></div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">💉 ราคาหัตถการ (ปกติ)</label>
+            <div class="input-suffix"><input class="form-input" type="number" id="cProcedure" placeholder="เช่น 10000" inputmode="decimal"><span class="suffix-label">บาท</span></div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">👨‍⚕️ % Doctor Fee หัตถการ</label>
+            <div class="input-suffix"><input class="form-input" type="number" id="cDoctorPct" placeholder="เช่น 30" inputmode="decimal"><span class="suffix-label">%</span></div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">🤖 ค่าทำเครื่อง</label>
+            <div class="input-suffix"><input class="form-input" type="number" id="cMachine" placeholder="เช่น 5000" inputmode="decimal"><span class="suffix-label">บาท</span></div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">% Doctor เครื่อง</label>
+            <div class="input-suffix"><input class="form-input" type="number" id="cMachinePct" placeholder="เช่น 20" inputmode="decimal"><span class="suffix-label">%</span></div>
+          </div>
+          <div class="form-group" style="grid-column:1/-1">
+            <label class="form-label">💵 ค่าเวรเหมา (ถ้าเป็นเหมา)</label>
+            <div class="input-suffix"><input class="form-input" type="number" id="cLump" placeholder="ใส่ถ้าเป็นเวรเหมา" inputmode="decimal"><span class="suffix-label">บาท</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="btn-row" style="padding-bottom:8px;">
+        <button class="btn btn-primary" id="saveClinBtn" onclick="saveClinic()">บันทึกคลินิก ✓</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<script>
+const MONTHS_TH=['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
+const PALETTE=['#e74c3c','#e67e22','#f39c12','#27ae60','#1abc9c','#2980b9','#8e44ad','#e91e63','#ff5722','#795548','#607d8b','#00bcd4','#8bc34a','#ff9800','#673ab7','#f06292','#26a69a','#5c6bc0','#d4a017','#c0392b'];
+
+let today=new Date(), curYear=today.getFullYear(), curMonth=today.getMonth(), selectedDay=null, selColor=PALETTE[3];
+let editingClinicId=null;
+
+const sk=(y,m)=>`clinic_${y}_${m}`;
+const getData=(y,m)=>{try{return JSON.parse(localStorage.getItem(sk(y,m))||'{}')}catch(e){return{}}};
+const saveData=(y,m,d)=>localStorage.setItem(sk(y,m),JSON.stringify(d));
+const getClinics=()=>{try{return JSON.parse(localStorage.getItem('clinic_presets')||'[]')}catch(e){return[]}};
+const saveClinics=arr=>localStorage.setItem('clinic_presets',JSON.stringify(arr));
+
+const fmt=n=>(!n&&n!==0)?'—':'฿'+Math.round(n).toLocaleString('th-TH');
+const fmtC=n=>n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(0)+'k':Math.round(n).toLocaleString('th-TH');
+
+function genAbbr(){
+  const name=document.getElementById('cName').value.trim();
+  const abbr=name.split(/\s+/).map(w=>w[0]||'').join('').toUpperCase().slice(0,4);
+  document.getElementById('cAbbr').value=abbr;
+}
+
+function changeMonth(d){
+  curMonth+=d;
+  if(curMonth<0){curMonth=11;curYear--;}
+  if(curMonth>11){curMonth=0;curYear++;}
+  renderCalendar();
+}
+
+function renderCalendar(){
+  document.getElementById('monthLabel').textContent=MONTHS_TH[curMonth]+' '+(curYear+543);
+  const grid=document.getElementById('calGrid');
+  grid.innerHTML='';
+  const data=getData(curYear,curMonth);
+  const firstDay=new Date(curYear,curMonth,1).getDay();
+  const dim=new Date(curYear,curMonth+1,0).getDate();
+  for(let i=0;i<firstDay;i++){const c=document.createElement('div');c.className='day-cell empty';grid.appendChild(c);}
+  for(let d=1;d<=dim;d++){
+    const cell=document.createElement('div');
+    const dow=(firstDay+d-1)%7;
+    let cls='day-cell';
+    if(dow===0)cls+=' sunday';
+    if(dow===6)cls+=' saturday';
+    if(d===today.getDate()&&curMonth===today.getMonth()&&curYear===today.getFullYear())cls+=' today';
+    const dd=data[d];
+    if(dd&&dd.total>0)cls+=' has-data';
+    cell.className=cls;
+    const numEl=document.createElement('div');numEl.className='day-num';numEl.textContent=d;cell.appendChild(numEl);
+    if(dd&&dd.total>0){
+      const inc=document.createElement('div');inc.className='day-income';inc.textContent=fmtC(dd.total);cell.appendChild(inc);
+    }
+    if(dd&&dd.clinicId){
+      const cl=getClinics().find(c=>c.id===dd.clinicId);
+      if(cl){const badge=document.createElement('div');badge.className='day-clinic-badge';badge.textContent=cl.abbr;badge.style.background=cl.color;cell.appendChild(badge);}
+    }
+    cell.addEventListener('click',()=>openSheet(d));
+    grid.appendChild(cell);
+  }
+  updateSummary();
+}
+
+function populateClinicSel(selId=''){
+  const sel=document.getElementById('clinicSel');
+  sel.innerHTML='<option value="">— ไม่ระบุ / กรอกเอง —</option>';
+  getClinics().forEach(cl=>{
+    const o=document.createElement('option');o.value=cl.id;
+    o.textContent=cl.name+(cl.abbr?` [${cl.abbr}]`:'');
+    if(cl.id===selId)o.selected=true;
+    sel.appendChild(o);
+  });
+}
+
+function setNormalDisabled(dis){
+  ['inHourRate','inHours','inProcedure','inDoctorPct','inMachine','inMachinePct'].forEach(id=>document.getElementById(id).disabled=dis);
+}
+
+function applyPreset(){
+  const id=document.getElementById('clinicSel').value;
+  clearNormalInputs();
+  if(!id){setNormalDisabled(false);calcPreview();return;}
+  const cl=getClinics().find(c=>c.id===id);
+  if(!cl)return;
+  if(cl.lump){
+    document.getElementById('inLump').value=cl.lump;
+    setNormalDisabled(true);
+  } else {
+    document.getElementById('inLump').value='';
+    setNormalDisabled(false);
+    document.getElementById('inHourRate').value=cl.hourRate||'';
+    document.getElementById('inHours').value=cl.hours||'';
+    document.getElementById('inProcedure').value=cl.procedure||'';
+    document.getElementById('inDoctorPct').value=cl.doctorPct||'';
+    document.getElementById('inMachine').value=cl.machine||'';
+    document.getElementById('inMachinePct').value=cl.machinePct||'';
+  }
+  calcPreview();
+}
+
+function clearNormalInputs(){
+  ['inHourRate','inHours','inProcedure','inDoctorPct','inMachine','inMachinePct','inLump'].forEach(id=>document.getElementById(id).value='');
+}
+
+function onLumpChange(){
+  const hasLump=document.getElementById('inLump').value.trim()!=='';
+  setNormalDisabled(hasLump);
+  calcPreview();
+}
+
+function openSheet(day){
+  selectedDay=day;
+  const dd=getData(curYear,curMonth)[day]||{};
+  const dateObj=new Date(curYear,curMonth,day);
+  const dayNames=['อาทิตย์','จันทร์','อังคาร','พุธ','พฤหัสบดี','ศุกร์','เสาร์'];
+  document.getElementById('sheetTitle').textContent=`วันที่ ${day} ${MONTHS_TH[curMonth]}`;
+  document.getElementById('sheetDate').textContent=`วัน${dayNames[dateObj.getDay()]}`;
+  populateClinicSel(dd.clinicId||'');
+  document.getElementById('inHourRate').value=dd.hourRate||'';
+  document.getElementById('inHours').value=dd.hours||'';
+  document.getElementById('inProcedure').value=dd.procedure||'';
+  document.getElementById('inDoctorPct').value=dd.doctorPct||'';
+  document.getElementById('inMachine').value=dd.machine||'';
+  document.getElementById('inMachinePct').value=dd.machinePct||'';
+  document.getElementById('inLump').value=dd.lump||'';
+  setNormalDisabled(!!(dd.lump));
+  document.getElementById('btnClear').style.display=dd.total?'block':'none';
+  calcPreview();
+  document.getElementById('overlay').classList.add('open');
+  document.body.style.overflow='hidden';
+}
+
+function closeSheet(){document.getElementById('overlay').classList.remove('open');document.body.style.overflow='';selectedDay=null;}
+function handleOvClick(e){if(e.target===document.getElementById('overlay'))closeSheet();}
+
+function calcPreview(){
+  const lump=parseFloat(document.getElementById('inLump').value)||0;
+  const isLump=lump>0;
+  document.getElementById('rowSit').style.display=isLump?'none':'flex';
+  document.getElementById('rowDF').style.display=isLump?'none':'flex';
+  document.getElementById('rowMach').style.display=isLump?'none':'flex';
+  document.getElementById('rowLump').style.display=isLump?'flex':'none';
+  if(isLump){document.getElementById('rLump').textContent=fmt(lump);document.getElementById('rTotal').textContent=fmt(lump);return;}
+  const hourRate=parseFloat(document.getElementById('inHourRate').value)||0;
+  const hours=parseFloat(document.getElementById('inHours').value)||0;
+  const procedure=parseFloat(document.getElementById('inProcedure').value)||0;
+  const doctorPct=parseFloat(document.getElementById('inDoctorPct').value)||0;
+  const machine=parseFloat(document.getElementById('inMachine').value)||0;
+  const machinePct=parseFloat(document.getElementById('inMachinePct').value)||0;
+  const sitting=hourRate*hours;
+  const doctorFee=procedure*(doctorPct/100);
+  const machineFee=machine*(machinePct/100);
+  const total=sitting+doctorFee+machineFee;
+  document.getElementById('rSitting').textContent=sitting>0?fmt(sitting):'—';
+  document.getElementById('rDoctor').textContent=doctorFee>0?fmt(doctorFee):'—';
+  document.getElementById('rMachine').textContent=machineFee>0?fmt(machineFee):'—';
+  document.getElementById('rTotal').textContent=fmt(total);
+}
+
+function saveDay(){
+  if(!selectedDay)return;
+  const lump=parseFloat(document.getElementById('inLump').value)||0;
+  const clinicId=document.getElementById('clinicSel').value||'';
+  let entry={clinicId};
+  if(lump>0){entry.lump=lump;entry.total=lump;}
+  else{
+    const hourRate=parseFloat(document.getElementById('inHourRate').value)||0;
+    const hours=parseFloat(document.getElementById('inHours').value)||0;
+    const procedure=parseFloat(document.getElementById('inProcedure').value)||0;
+    const doctorPct=parseFloat(document.getElementById('inDoctorPct').value)||0;
+    const machine=parseFloat(document.getElementById('inMachine').value)||0;
+    const machinePct=parseFloat(document.getElementById('inMachinePct').value)||0;
+    const sitting=hourRate*hours;
+    const doctorFee=procedure*(doctorPct/100);
+    const machineFee=machine*(machinePct/100);
+    entry={...entry,hourRate,hours,procedure,doctorPct,machine,machinePct,sitting,doctorFee,machineFee,total:sitting+doctorFee+machineFee};
+  }
+  const data=getData(curYear,curMonth);data[selectedDay]=entry;saveData(curYear,curMonth,data);
+  closeSheet();renderCalendar();
+}
+
+function clearDay(){
+  if(!selectedDay)return;
+  const data=getData(curYear,curMonth);delete data[selectedDay];saveData(curYear,curMonth,data);
+  closeSheet();renderCalendar();
+}
+
+function updateSummary(){
+  const data=getData(curYear,curMonth);
+  let total=0,count=0;
+  Object.values(data).forEach(d=>{if(d&&d.total>0){total+=d.total;count++;}});
+  document.getElementById('summaryTotal').textContent='฿'+Math.round(total).toLocaleString('th-TH');
+  document.getElementById('summaryCount').textContent=count+' เวร';
+}
+
+/* CLINIC MANAGER */
+function openClinicMgr(){
+  editingClinicId=null;
+  switchMgrTab('list');
+  renderClinicList();
+  document.getElementById('mgrOverlay').classList.add('open');
+  document.body.style.overflow='hidden';
+}
+function closeClinicMgr(){document.getElementById('mgrOverlay').classList.remove('open');document.body.style.overflow='';editingClinicId=null;}
+function handleMgrClick(e){if(e.target===document.getElementById('mgrOverlay'))closeClinicMgr();}
+
+function switchMgrTab(tab){
+  const isList=tab==='list';
+  document.getElementById('mgrTabList').classList.toggle('active',isList);
+  document.getElementById('mgrTabAdd').classList.toggle('active',!isList);
+  document.getElementById('mgrList').style.display=isList?'block':'none';
+  document.getElementById('mgrAdd').style.display=isList?'none':'block';
+  if(!isList&&!editingClinicId){
+    ['cName','cAbbr','cHourRate','cHours','cProcedure','cDoctorPct','cMachine','cMachinePct','cLump'].forEach(id=>document.getElementById(id).value='');
+    selColor=PALETTE[3];
+    renderColorGrid();
+    document.getElementById('editBanner').style.display='none';
+    document.getElementById('saveClinBtn').textContent='บันทึกคลินิก ✓';
+  }
+}
+
+function editClinic(id){
+  const cl=getClinics().find(c=>c.id===id);
+  if(!cl)return;
+  editingClinicId=id;
+  document.getElementById('mgrTabAdd').click();
+  document.getElementById('cName').value=cl.name||'';
+  document.getElementById('cAbbr').value=cl.abbr||'';
+  document.getElementById('cHourRate').value=cl.hourRate||'';
+  document.getElementById('cHours').value=cl.hours||'';
+  document.getElementById('cProcedure').value=cl.procedure||'';
+  document.getElementById('cDoctorPct').value=cl.doctorPct||'';
+  document.getElementById('cMachine').value=cl.machine||'';
+  document.getElementById('cMachinePct').value=cl.machinePct||'';
+  document.getElementById('cLump').value=cl.lump||'';
+  selColor=cl.color||PALETTE[3];
+  renderColorGrid();
+  document.getElementById('editBanner').style.display='flex';
+  document.getElementById('editBannerText').textContent='กำลังแก้ไข: '+cl.name;
+  document.getElementById('saveClinBtn').textContent='บันทึกการแก้ไข ✓';
+}
+
+function cancelEdit(){
+  editingClinicId=null;
+  ['cName','cAbbr','cHourRate','cHours','cProcedure','cDoctorPct','cMachine','cMachinePct','cLump'].forEach(id=>document.getElementById(id).value='');
+  selColor=PALETTE[3];
+  renderColorGrid();
+  document.getElementById('editBanner').style.display='none';
+  document.getElementById('saveClinBtn').textContent='บันทึกคลินิก ✓';
+}
+
+function renderClinicList(){
+  const el=document.getElementById('clinicListEl');
+  const clinics=getClinics();
+  if(!clinics.length){el.innerHTML='<div class="no-clinic">ยังไม่มีคลินิก<br>กด "เพิ่ม / แก้ไข" เพื่อเริ่ม</div>';return;}
+  el.innerHTML='';
+  clinics.forEach(cl=>{
+    const item=document.createElement('div');item.className='clinic-item';
+    const sub=cl.lump?`เวรเหมา ฿${Number(cl.lump).toLocaleString('th-TH')}`:`฿${cl.hourRate||'?'}/ชม · ${cl.hours||'?'}ชม`;
+    item.innerHTML=`
+      <div class="clinic-dot" style="background:${cl.color}">${cl.abbr}</div>
+      <div class="clinic-item-info">
+        <div class="clinic-item-name">${cl.name}</div>
+        <div class="clinic-item-sub">${cl.abbr} · ${sub}</div>
+      </div>
+      <div class="clinic-item-actions">
+        <button class="clinic-item-btn edit" onclick="editClinic('${cl.id}')">✏️ แก้ไข</button>
+        <button class="clinic-item-btn del" onclick="deleteClinic('${cl.id}',event)">🗑️ ลบ</button>
+      </div>`;
+    el.appendChild(item);
+  });
+}
+
+function renderColorGrid(){
+  const grid=document.getElementById('colorGrid');grid.innerHTML='';
+  PALETTE.forEach(color=>{
+    const sw=document.createElement('div');sw.className='color-swatch'+(color===selColor?' selected':'');
+    sw.style.background=color;sw.onclick=()=>{selColor=color;renderColorGrid();};grid.appendChild(sw);
+  });
+}
+
+function saveClinic(){
+  const name=document.getElementById('cName').value.trim();
+  if(!name){alert('กรุณากรอกชื่อคลินิก');return;}
+  const abbr=document.getElementById('cAbbr').value.trim().toUpperCase()||name.replace(/\s+/g,'').slice(0,3).toUpperCase();
+  const clinics=getClinics();
+  const clData={name,abbr,color:selColor,
+    hourRate:document.getElementById('cHourRate').value||'',
+    hours:document.getElementById('cHours').value||'',
+    procedure:document.getElementById('cProcedure').value||'',
+    doctorPct:document.getElementById('cDoctorPct').value||'',
+    machine:document.getElementById('cMachine').value||'',
+    machinePct:document.getElementById('cMachinePct').value||'',
+    lump:document.getElementById('cLump').value||'',
+  };
+  if(editingClinicId){
+    const idx=clinics.findIndex(c=>c.id===editingClinicId);
+    if(idx>=0){clinics[idx]={...clinics[idx],...clData};}
+  } else {
+    clinics.push({id:'cl_'+Date.now(),...clData});
+  }
+  saveClinics(clinics);
+  editingClinicId=null;
+  switchMgrTab('list');
+  renderClinicList();
+}
+
+function deleteClinic(id,e){
+  e.stopPropagation();
+  const cl=getClinics().find(c=>c.id===id);
+  if(!confirm(`ลบ "${cl?.name||'คลินิกนี้'}"?`))return;
+  saveClinics(getClinics().filter(c=>c.id!==id));
+  renderClinicList();
+}
+
+renderColorGrid();
+renderCalendar();
+</script>
+</body>
+</html>
