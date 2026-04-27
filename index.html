@@ -78,6 +78,16 @@ body{font-family:'Sarabun',sans-serif;background:var(--bg);color:var(--text);min
 .summary-report-btn{background:rgba(255,255,255,.18);border:none;color:#fff;padding:8px 12px;border-radius:20px;font-size:11px;font-weight:600;font-family:'Sarabun',sans-serif;cursor:pointer;white-space:nowrap;flex-shrink:0}
 .summary-report-btn:active{background:rgba(255,255,255,.32)}
 
+/* ===== HANGING FEE BANNER ===== */
+.hanging-bar{background:#fff;border-bottom:1.5px solid var(--border);padding:10px 16px;display:flex;align-items:center;gap:10px;position:sticky;top:var(--header-h,106px);z-index:95;box-shadow:0 2px 8px rgba(0,0,0,.04)}
+.hanging-bar-label{font-size:12px;font-weight:700;color:var(--text-muted);white-space:nowrap;flex-shrink:0}
+.hanging-bar-inner{position:relative;flex:1;max-width:200px}
+.hanging-input{width:100%;padding:8px 42px 8px 10px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:14px;font-family:'Sarabun',sans-serif;color:var(--text);background:var(--bg);outline:none;-webkit-appearance:none;transition:border-color .15s}
+.hanging-input:focus{border-color:var(--primary-mid);background:#fff}
+.hanging-suffix{position:absolute;right:10px;top:50%;transform:translateY(-50%);font-size:11px;color:var(--text-muted);font-weight:500;pointer-events:none}
+.hanging-bar-total{font-size:12px;color:var(--text-muted);white-space:nowrap;flex-shrink:0}
+.hanging-bar-total span{font-weight:700;color:var(--primary)}
+
 .overlay{display:none;position:fixed;inset:0;background:rgba(15,30,25,.45);z-index:200;align-items:flex-end;justify-content:center}
 .overlay.open{display:flex}
 .sheet{background:var(--card);border-radius:24px 24px 0 0;width:100%;max-width:var(--sheet-max);padding:0 0 40px;animation:slideUp .28s cubic-bezier(.34,1.56,.64,1);max-height:92vh;overflow-y:auto}
@@ -283,11 +293,22 @@ canvas.pie-canvas{max-width:100%}
   <div class="weekday">อา</div><div class="weekday">จ</div><div class="weekday">อ</div>
   <div class="weekday">พ</div><div class="weekday">พฤ</div><div class="weekday">ศ</div><div class="weekday">ส</div>
 </div>
+<!-- ===== HANGING FEE BAR ===== -->
+<div class="hanging-bar" id="hangingBar">
+  <span class="hanging-bar-label">🪧 ค่าแขวนเดือนนี้</span>
+  <div class="hanging-bar-inner">
+    <input class="hanging-input" id="hangingInput" type="number" inputmode="decimal"
+      placeholder="0" oninput="onHangingInput()">
+    <span class="hanging-suffix">บาท</span>
+  </div>
+  <div class="hanging-bar-total">รวม <span id="hangingGrandTotal">฿0</span></div>
+</div>
+
 <div class="calendar-wrap"><div class="calendar-grid" id="calGrid"></div></div>
 
 <div class="summary-bar">
   <div>
-    <div class="summary-label">รวมเดือนนี้</div>
+    <div class="summary-label">รวมเดือนนี้ (รวมค่าแขวน)</div>
     <div class="summary-sub" id="summaryCount">0 เวร</div>
   </div>
   <button class="summary-report-btn" onclick="openReport()">📊 สรุปหัตถการ</button>
@@ -499,6 +520,11 @@ const saveProcList=arr=>localStorage.setItem('proc_list',JSON.stringify(arr));
 const getMachList=()=>{try{const s=JSON.parse(localStorage.getItem('mach_list')||'[]');return s.length?s:[...DEFAULT_MACHS]}catch(e){return[...DEFAULT_MACHS]}};
 const saveMachList=arr=>localStorage.setItem('mach_list',JSON.stringify(arr));
 
+/* --- Hanging fee: keyed per year-month, separate from day data --- */
+const skHang=(y,m)=>`hang_${y}_${m}`;
+const getHanging=(y,m)=>{const v=localStorage.getItem(skHang(y,m));return v!==null?parseFloat(v)||0:0;};
+const saveHanging=(y,m,val)=>localStorage.setItem(skHang(y,m),val);
+
 const fmt=n=>(!n&&n!==0)?'—':'฿'+Math.round(n).toLocaleString('th-TH');
 const fmtC=n=>n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(0)+'k':Math.round(n).toLocaleString('th-TH');
 function genAbbr(){const v=document.getElementById('cName').value.trim();document.getElementById('cAbbr').value=v.split(/\s+/).map(w=>w[0]||'').join('').toUpperCase().slice(0,4);}
@@ -507,6 +533,9 @@ function genAbbr(){const v=document.getElementById('cName').value.trim();documen
 function changeMonth(d){curMonth+=d;if(curMonth<0){curMonth=11;curYear--;}if(curMonth>11){curMonth=0;curYear++;}renderCalendar();}
 function renderCalendar(){
   document.getElementById('monthLabel').textContent=MONTHS_TH[curMonth]+' '+(curYear+543);
+  /* load hanging fee for this month */
+  const hangVal=getHanging(curYear,curMonth);
+  document.getElementById('hangingInput').value=hangVal||'';
   const grid=document.getElementById('calGrid');grid.innerHTML='';
   const data=getData(curYear,curMonth);
   const firstDay=new Date(curYear,curMonth,1).getDay();
@@ -524,7 +553,23 @@ function renderCalendar(){
   }
   updateSummary();
 }
-function updateSummary(){const data=getData(curYear,curMonth);let total=0,count=0;Object.values(data).forEach(d=>{if(d&&d.total>0){total+=d.total;count++;}});document.getElementById('summaryTotal').textContent='฿'+Math.round(total).toLocaleString('th-TH');document.getElementById('summaryCount').textContent=count+' เวร';}
+function updateSummary(){
+  const data=getData(curYear,curMonth);
+  let dutyTotal=0,count=0;
+  Object.values(data).forEach(d=>{if(d&&d.total>0){dutyTotal+=d.total;count++;}});
+  const hanging=getHanging(curYear,curMonth);
+  const grand=dutyTotal+hanging;
+  document.getElementById('summaryTotal').textContent='฿'+Math.round(grand).toLocaleString('th-TH');
+  document.getElementById('summaryCount').textContent=count+' เวร';
+  /* update the inline grand total next to hanging input */
+  document.getElementById('hangingGrandTotal').textContent='฿'+Math.round(grand).toLocaleString('th-TH');
+}
+
+function onHangingInput(){
+  const val=parseFloat(document.getElementById('hangingInput').value)||0;
+  saveHanging(curYear,curMonth,val||'');
+  updateSummary();
+}
 
 /* ===== PATIENT / PROCEDURE DATA HELPERS ===== */
 function newProc(){return{name:'',tradeName:'',amount:''};}
@@ -1127,6 +1172,16 @@ async function saveScreenshot(){
 
 renderColorGrid();
 renderCalendar();
+
+/* measure header height so hanging-bar sticks right below it */
+(function setHeaderH(){
+  const hdr=document.querySelector('.header');
+  const wdays=document.querySelector('.weekdays');
+  if(hdr&&wdays){
+    const h=hdr.offsetHeight+wdays.offsetHeight;
+    document.documentElement.style.setProperty('--header-h', h+'px');
+  }
+})();
 </script>
 </body>
 </html>
