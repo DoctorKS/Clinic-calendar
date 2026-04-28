@@ -240,6 +240,21 @@ body{font-family:'Sarabun',sans-serif;background:var(--bg);color:var(--text);min
 .edit-badge{display:inline-flex;align-items:center;gap:8px;background:var(--primary-light);border-radius:20px;padding:6px 12px;margin-bottom:12px;font-size:13px;font-weight:600;color:var(--primary)}
 .edit-badge-dot{width:16px;height:16px;border-radius:50%}
 
+/* ===== SPECIAL CONDITION ===== */
+.cond-select{width:100%;padding:11px 14px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:14px;font-family:'Sarabun',sans-serif;color:var(--text);background:var(--bg);outline:none;-webkit-appearance:none;cursor:pointer}
+.cond-select:focus{border-color:var(--primary-mid)}
+
+/* Guarantee banner — shown inside day sheet when condition=guarantee */
+.guarantee-banner{display:none;margin:0 20px 14px;background:linear-gradient(135deg,#fff8ec,#fffbf2);border:2px solid #f5c97a;border-radius:var(--radius-sm);padding:11px 14px}
+.guarantee-banner.show{display:block}
+.guarantee-banner-title{font-size:12px;font-weight:700;color:#b06c00;margin-bottom:6px;display:flex;align-items:center;gap:6px}
+.guarantee-banner-row{display:flex;justify-content:space-between;font-size:13px;padding:2px 0;color:#7a4f00}
+.guarantee-banner-row span:last-child{font-weight:700}
+.guarantee-banner-result{margin-top:8px;padding-top:8px;border-top:1px solid #f5c97a;display:flex;justify-content:space-between;font-size:14px;font-weight:700;color:#b06c00}
+.guarantee-used-tag{display:inline-block;font-size:10px;font-weight:800;padding:2px 7px;border-radius:10px;margin-left:6px;vertical-align:middle}
+.guarantee-used-tag.earn{background:#e8f5e9;color:#2e7d32}
+.guarantee-used-tag.lump{background:#fff3e0;color:#e65100}
+
 /* REPORT */
 .report-overlay{display:none;position:fixed;inset:0;background:rgba(15,30,25,.55);z-index:300;align-items:flex-end;justify-content:center}
 .report-overlay.open{display:flex}
@@ -348,6 +363,21 @@ canvas.pie-canvas{max-width:100%}
         <div class="input-suffix"><input class="form-input" type="number" id="inMachPct" placeholder="เช่น 20" inputmode="decimal" oninput="calcPreview()"><span class="suffix-label">%</span></div>
       </div>
     </div>
+    <div class="form-group" id="condRow" style="display:none">
+      <label class="form-label">⚙️ เงื่อนไขพิเศษ</label>
+      <div style="background:var(--primary-light);border-radius:var(--radius-sm);padding:9px 14px;font-size:13px;font-weight:600;color:var(--primary)" id="condDisplay">—</div>
+    </div>
+  </div>
+
+  <!-- GUARANTEE BANNER -->
+  <div class="guarantee-banner" id="guaranteeBanner">
+    <div class="guarantee-banner-title">🛡 เงื่อนไขการันตี — เอาแบบที่มากกว่า</div>
+    <div class="guarantee-banner-row"><span>ค่านั่ง + DF (คำนวณ)</span><span id="gbEarned">—</span></div>
+    <div class="guarantee-banner-row"><span>ค่าเวรเหมา (การันตี)</span><span id="gbLump">—</span></div>
+    <div class="guarantee-banner-result">
+      <span>ได้รับจริง <span class="guarantee-used-tag" id="gbTag"></span></span>
+      <span id="gbFinal">—</span>
+    </div>
   </div>
 
   <!-- PATIENT SECTION -->
@@ -374,10 +404,12 @@ canvas.pie-canvas{max-width:100%}
     <div class="result-row"><span class="result-row-label">ค่านั่ง</span><span class="result-row-val" id="rSitting">—</span></div>
     <div class="result-row"><span class="result-row-label">Doctor Fee (หัตถการ)</span><span class="result-row-val" id="rProcFee">—</span></div>
     <div class="result-row"><span class="result-row-label">Doctor Fee (เครื่อง)</span><span class="result-row-val" id="rMachFee">—</span></div>
-    <div class="result-row" id="rowLump" style="display:none"><span class="result-row-label">ค่าเวรเหมา</span><span class="result-row-val" id="rLump">—</span></div>
+    <div class="result-row" id="rowLump" style="display:none"><span class="result-row-label" id="rLumpLabel">ค่าเวรเหมา</span><span class="result-row-val" id="rLump">—</span></div>
     <div class="result-divider"></div>
-    <div class="result-total-row"><span class="result-total-label">รวมทั้งหมด</span><span class="result-total-val" id="rTotal">฿0</span></div>
+    <div class="result-total-row"><span class="result-total-label">รวมทั้งหมด <span id="rCondTag" style="font-size:10px;font-weight:800;padding:2px 7px;border-radius:10px;margin-left:4px;display:none"></span></span><span class="result-total-val" id="rTotal">฿0</span></div>
   </div>
+  <!-- hidden: stores condition from clinic preset -->
+  <input type="hidden" id="inCondition" value="">
   <div class="btn-row">
     <button class="btn btn-danger" onclick="clearDay()" id="btnClear" style="display:none">ลบ</button>
     <button class="btn btn-primary" onclick="saveDay()">บันทึก ✓</button>
@@ -427,6 +459,13 @@ canvas.pie-canvas{max-width:100%}
       <div style="display:flex;gap:10px">
         <div class="form-group" style="flex:1"><label class="form-label">💉 % DF หัตถการ</label><div class="input-suffix"><input class="form-input" type="number" id="cProcPct" placeholder="เช่น 30" inputmode="decimal"><span class="suffix-label">%</span></div></div>
         <div class="form-group" style="flex:1"><label class="form-label">🤖 % DF เครื่อง</label><div class="input-suffix"><input class="form-input" type="number" id="cMachPct" placeholder="เช่น 20" inputmode="decimal"><span class="suffix-label">%</span></div></div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">⚙️ เงื่อนไขพิเศษ</label>
+        <select class="cond-select" id="cCondition">
+          <option value="">— ไม่มีเงื่อนไขพิเศษ —</option>
+          <option value="guarantee">การันตี (เวรเหมา vs ชม.+DF — ได้แบบที่มากกว่า)</option>
+        </select>
       </div>
     </div>
     <div class="btn-row" style="padding-bottom:8px;gap:10px">
@@ -826,13 +865,26 @@ function populateClinicSel(selId=''){
   getClinics().forEach(cl=>{const o=document.createElement('option');o.value=cl.id;o.textContent=cl.name+(cl.abbr?` [${cl.abbr}]`:'');if(cl.id===selId)o.selected=true;sel.appendChild(o);});
 }
 function applyPreset(){
-  const id=document.getElementById('clinicSel').value;if(!id)return;
+  const id=document.getElementById('clinicSel').value;if(!id){
+    document.getElementById('inCondition').value='';
+    document.getElementById('condRow').style.display='none';
+    calcPreview();return;
+  }
   const cl=getClinics().find(c=>c.id===id);if(!cl)return;
   document.getElementById('inHourRate').value=cl.hourRate||'';
   document.getElementById('inHours').value=cl.hours||'';
   document.getElementById('inProcPct').value=cl.procPct||'';
   document.getElementById('inMachPct').value=cl.machPct||'';
   if(cl.lump)document.getElementById('inLump').value=cl.lump;
+  const cond=cl.condition||'';
+  document.getElementById('inCondition').value=cond;
+  if(cond){
+    const condLabels={guarantee:'⚙️ การันตี — เอาแบบที่มากกว่า (เวรเหมา vs ชม.+DF)'};
+    document.getElementById('condDisplay').textContent=condLabels[cond]||cond;
+    document.getElementById('condRow').style.display='block';
+  } else {
+    document.getElementById('condRow').style.display='none';
+  }
   calcPreview();
 }
 
@@ -849,6 +901,16 @@ function openSheet(day){
   document.getElementById('inProcPct').value=dd.procPct||'';
   document.getElementById('inMachPct').value=dd.machPct||'';
   document.getElementById('inLump').value=dd.lump||'';
+  /* restore condition */
+  const cond=dd.condition||'';
+  document.getElementById('inCondition').value=cond;
+  if(cond){
+    const condLabels={guarantee:'⚙️ การันตี — เอาแบบที่มากกว่า (เวรเหมา vs ชม.+DF)'};
+    document.getElementById('condDisplay').textContent=condLabels[cond]||cond;
+    document.getElementById('condRow').style.display='block';
+  } else {
+    document.getElementById('condRow').style.display='none';
+  }
   /* load patients — support both new and legacy format */
   if(dd.patients&&dd.patients.length){
     patients=JSON.parse(JSON.stringify(dd.patients));
@@ -877,17 +939,58 @@ function calcPreview(){
   const lump=parseFloat(document.getElementById('inLump').value)||0;
   const procPct=parseFloat(document.getElementById('inProcPct').value)||0;
   const machPct=parseFloat(document.getElementById('inMachPct').value)||0;
+  const condition=document.getElementById('inCondition').value||'';
   const sitting=hourRate*hours;
   let procFee=0;
   patients.forEach(pat=>{procFee+=(parseFloat(pat.coursePrice)||0)*(procPct/100);});
   let machFee=0;
   machRows.forEach(r=>{machFee+=(parseFloat(r.price)||0)*(machPct/100);});
+
+  const earned=sitting+procFee+machFee; /* ค่านั่ง+DF ทั้งหมด */
+
   document.getElementById('rSitting').textContent=sitting>0?fmt(sitting):'—';
   document.getElementById('rProcFee').textContent=procFee>0?fmt(procFee):'—';
   document.getElementById('rMachFee').textContent=machFee>0?fmt(machFee):'—';
-  document.getElementById('rowLump').style.display=lump>0?'flex':'none';
-  if(lump>0) document.getElementById('rLump').textContent=fmt(lump);
-  document.getElementById('rTotal').textContent=fmt(sitting+procFee+machFee+lump);
+
+  let total=0;
+  const banner=document.getElementById('guaranteeBanner');
+  const condTag=document.getElementById('rCondTag');
+
+  if(condition==='guarantee'&&lump>0){
+    /* การันตี: เอาแบบที่มากกว่า */
+    const useEarned=earned>lump;
+    total=useEarned?earned:lump;
+
+    /* show guarantee banner */
+    banner.classList.add('show');
+    document.getElementById('gbEarned').textContent=fmt(earned);
+    document.getElementById('gbLump').textContent=fmt(lump);
+    document.getElementById('gbFinal').textContent=fmt(total);
+    const tag=document.getElementById('gbTag');
+    if(useEarned){tag.textContent='ได้ค่านั่ง+DF';tag.className='guarantee-used-tag earn';}
+    else{tag.textContent='ได้เวรเหมา';tag.className='guarantee-used-tag lump';}
+
+    /* hide lump row in summary (already in banner) */
+    document.getElementById('rowLump').style.display='none';
+
+    /* tag on total */
+    condTag.style.display='inline-block';
+    if(useEarned){condTag.textContent='ชม+DF';condTag.style.background='#e8f5e9';condTag.style.color='#2e7d32';}
+    else{condTag.textContent='การันตี';condTag.style.background='#fff3e0';condTag.style.color='#e65100';}
+  } else {
+    banner.classList.remove('show');
+    condTag.style.display='none';
+    total=earned+lump;
+    if(lump>0){
+      document.getElementById('rowLump').style.display='flex';
+      document.getElementById('rLump').textContent=fmt(lump);
+      document.getElementById('rLumpLabel').textContent='ค่าเวรเหมา';
+    } else {
+      document.getElementById('rowLump').style.display='none';
+    }
+  }
+
+  document.getElementById('rTotal').textContent=fmt(total);
 }
 
 function saveDay(){
@@ -899,6 +1002,7 @@ function saveDay(){
   const procPct=parseFloat(document.getElementById('inProcPct').value)||0;
   const machPct=parseFloat(document.getElementById('inMachPct').value)||0;
   const clinicId=document.getElementById('clinicSel').value||'';
+  const condition=document.getElementById('inCondition').value||'';
   const sitting=hourRate*hours;
   let procFee=0;
   const savedPats=patients.filter(pat=>pat.procs.some(p=>p.name)||pat.coursePrice).map(pat=>{
@@ -912,9 +1016,15 @@ function saveDay(){
     machFee+=fee;
     return{...r,fee};
   });
-  const total=sitting+procFee+machFee+lump;
+  const earned=sitting+procFee+machFee;
+  let total;
+  if(condition==='guarantee'&&lump>0){
+    total=earned>lump?earned:lump;
+  } else {
+    total=earned+lump;
+  }
   const data=getData(curYear,curMonth);
-  data[selectedDay]={clinicId,hourRate,hours,procPct,machPct,sitting,patients:savedPats,machs:savedMachs,lump,total};
+  data[selectedDay]={clinicId,condition,hourRate,hours,procPct,machPct,sitting,patients:savedPats,machs:savedMachs,lump,total};
   saveData(curYear,curMonth,data);
   closeSheet();renderCalendar();
 }
@@ -933,6 +1043,7 @@ function switchMgrTab(tab){
   if(isList) editingClinicId=null;
   if(!isList&&!editingClinicId){
     ['cName','cAbbr','cHourRate','cHours','cLump','cProcPct','cMachPct'].forEach(id=>document.getElementById(id).value='');
+    document.getElementById('cCondition').value='';
     selColor=PALETTE[3];
     document.getElementById('editBadge').style.display='none';
     document.getElementById('btnCancelEdit').style.display='none';
@@ -956,6 +1067,7 @@ function editClinic(id,e){
   document.getElementById('cLump').value=cl.lump||'';
   document.getElementById('cProcPct').value=cl.procPct||'';
   document.getElementById('cMachPct').value=cl.machPct||'';
+  document.getElementById('cCondition').value=cl.condition||'';
   selColor=cl.color;
   document.getElementById('editBadge').style.display='flex';
   document.getElementById('editBadgeDot').style.background=cl.color;
@@ -972,7 +1084,8 @@ function renderClinicList(){
   clinics.forEach(cl=>{
     const item=document.createElement('div');item.className='clinic-item';
     const sub=cl.lump?`เวรเหมา ฿${Number(cl.lump).toLocaleString('th-TH')}`:`฿${cl.hourRate||'?'}/ชม · ${cl.hours||'?'}ชม`;
-    item.innerHTML=`<div class="clinic-dot" style="background:${cl.color}">${cl.abbr}</div><div class="clinic-item-info"><div class="clinic-item-name">${cl.name}</div><div class="clinic-item-sub">${cl.abbr} · ${sub}</div></div><div class="clinic-item-actions"><button class="clinic-item-btn" onclick="editClinic('${cl.id}',event)">✏️</button><button class="clinic-item-btn" onclick="deleteClinic('${cl.id}',event)">🗑️</button></div>`;
+    const condBadge=cl.condition==='guarantee'?` <span style="background:#fff3e0;color:#e65100;font-size:10px;font-weight:800;border-radius:8px;padding:1px 6px;vertical-align:middle">🛡 การันตี</span>`:'';
+    item.innerHTML=`<div class="clinic-dot" style="background:${cl.color}">${cl.abbr}</div><div class="clinic-item-info"><div class="clinic-item-name">${cl.name}${condBadge}</div><div class="clinic-item-sub">${cl.abbr} · ${sub}</div></div><div class="clinic-item-actions"><button class="clinic-item-btn" onclick="editClinic('${cl.id}',event)">✏️</button><button class="clinic-item-btn" onclick="deleteClinic('${cl.id}',event)">🗑️</button></div>`;
     el.appendChild(item);
   });
 }
@@ -983,7 +1096,7 @@ function renderColorGrid(){
 function saveClinic(){
   const name=document.getElementById('cName').value.trim();if(!name){alert('กรุณากรอกชื่อคลินิก');return;}
   const abbr=document.getElementById('cAbbr').value.trim().toUpperCase()||name.replace(/\s+/g,'').slice(0,3).toUpperCase();
-  const fields={name,abbr,color:selColor,hourRate:document.getElementById('cHourRate').value||'',hours:document.getElementById('cHours').value||'',lump:document.getElementById('cLump').value||'',procPct:document.getElementById('cProcPct').value||'',machPct:document.getElementById('cMachPct').value||''};
+  const fields={name,abbr,color:selColor,hourRate:document.getElementById('cHourRate').value||'',hours:document.getElementById('cHours').value||'',lump:document.getElementById('cLump').value||'',procPct:document.getElementById('cProcPct').value||'',machPct:document.getElementById('cMachPct').value||'',condition:document.getElementById('cCondition').value||''};
   const clinics=getClinics();
   if(editingClinicId){const idx=clinics.findIndex(c=>c.id===editingClinicId);if(idx>=0)clinics[idx]={...clinics[idx],...fields};editingClinicId=null;}
   else{clinics.push({id:'cl_'+Date.now(),...fields});}
