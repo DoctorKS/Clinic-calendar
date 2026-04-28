@@ -212,6 +212,7 @@ body{font-family:'Sarabun',sans-serif;background:var(--bg);color:var(--text);min
 .proc-row-del{background:none;border:none;font-size:16px;cursor:pointer;color:#ccc;padding:2px 4px;border-radius:6px}
 .proc-row-del:active{color:var(--danger)}
 .proc-price-row{display:flex;gap:6px}
+.mach-price-amount-row{display:flex;gap:6px}
 .proc-price-wrap{flex:1;position:relative}
 .proc-price-input{width:100%;padding:9px 36px 9px 10px;border:1.5px solid #c5d0f0;border-radius:var(--radius-sm);font-size:13px;font-family:'Sarabun',sans-serif;color:var(--text);background:#fff;outline:none;-webkit-appearance:none}
 .proc-price-input:focus{border-color:#3a5bd6}
@@ -628,7 +629,7 @@ function onHangingInput(){
 /* ===== PATIENT / PROCEDURE DATA HELPERS ===== */
 function newProc(){return{name:'',tradeName:'',amount:'',specialDf:false,specialDfPct:'',specialDfPrice:''};}
 function newPatient(){return{procs:[newProc()],coursePrice:''};}
-function newMach(){return{name:'',price:''};}
+function newMach(){return{name:'',price:'',amount:''};}
 
 /* Flush all live DOM values back into patients[] and machRows[] */
 function flushAll(){
@@ -653,8 +654,10 @@ function flushAll(){
   machRows.forEach((r,i)=>{
     const n=document.getElementById('mn_'+i);
     const p=document.getElementById('mp_'+i);
+    const a=document.getElementById('ma_'+i);
     if(n) r.name=n.value;
     if(p) r.price=p.value;
+    if(a) r.amount=a.value;
   });
 }
 
@@ -849,13 +852,21 @@ function renderMachRows(){
           style="background:#f0f4ff;border-color:#c5d0f0">
         <span class="pick-arrow">▼</span>
       </div>
-      <div class="proc-price-row">
-        <div class="proc-price-wrap">
+      <div class="mach-price-amount-row">
+        <div class="proc-price-wrap" style="flex:1.4">
           <input class="proc-price-input" id="mp_${i}" placeholder="ราคาค่าเครื่อง"
             type="number" inputmode="decimal"
             value="${row.price||''}"
             oninput="calcPreview()">
           <span class="proc-price-suffix">บาท</span>
+        </div>
+        <div style="position:relative;flex:1">
+          <input class="proc-price-input" id="ma_${i}" placeholder="ปริมาณ / ช็อต"
+            type="number" inputmode="numeric" min="0"
+            value="${row.amount||''}"
+            oninput="this.value=this.value.replace(/[^0-9]/g,'')"
+            style="border-color:#c5d0f0;padding-right:34px">
+          <span class="proc-price-suffix">หน่วย</span>
         </div>
       </div>`;
     c.appendChild(card);
@@ -1101,7 +1112,7 @@ function saveDay(){
   const savedMachs=machRows.filter(r=>r.name||r.price).map(r=>{
     const fee=(parseFloat(r.price)||0)*(machPct/100);
     machFee+=fee;
-    return{...r,fee};
+    return{name:r.name||'',price:r.price||'',amount:r.amount||'',fee};
   });
   const earned=sitting+procFee+specialDfFee+machFee;
   let total;
@@ -1277,8 +1288,9 @@ function generateReport(){
       /* machines */
       (dd.machs||[]).forEach(p=>{
         if(!p.name)return;
-        if(!machMap[p.name])machMap[p.name]={count:0};
+        if(!machMap[p.name])machMap[p.name]={count:0,totalAmount:0};
         machMap[p.name].count++;
+        machMap[p.name].totalAmount+=parseFloat(p.amount)||0;
       });
     });
   });
