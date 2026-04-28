@@ -676,9 +676,6 @@ function renderPatients(){
   const container=document.getElementById('patientContainer');
   container.innerHTML='';
   patients.forEach((pat,pi)=>{
-    const procNames=pat.procs.filter(p=>p.name).map(p=>p.name);
-    const summary=procNames.length?procNames.join(', '):'ยังไม่ระบุหัตถการ';
-
     const card=document.createElement('div');
     card.className='patient-card open';
     card.id='patCard_'+pi;
@@ -688,7 +685,7 @@ function renderPatients(){
     hdr.className='patient-card-header';
     hdr.innerHTML=`
       <span class="patient-badge">คนไข้คนที่ ${pi+1}</span>
-      <span class="patient-summary" id="patSum_${pi}">${summary}</span>
+      <span style="flex:1"></span>
       <span class="patient-chevron">▼</span>
       <button class="patient-del-btn" onclick="deletePatient(${pi},event)">✕</button>`;
     hdr.addEventListener('click',e=>{
