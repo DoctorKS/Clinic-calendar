@@ -178,6 +178,21 @@ body{font-family:'Sarabun',sans-serif;background:var(--bg);color:var(--text);min
 .add-sub-btn{width:100%;padding:7px;border:1.5px dashed var(--primary-mid);border-radius:8px;background:var(--primary-light);font-size:12px;font-weight:600;color:var(--primary);font-family:'Sarabun',sans-serif;cursor:pointer;margin-top:6px;margin-bottom:2px}
 .add-sub-btn:active{opacity:.7}
 
+/* Special DF toggle inside sub-proc */
+.special-df-toggle{display:inline-flex;align-items:center;gap:6px;margin-top:8px;cursor:pointer;user-select:none}
+.special-df-toggle input[type=checkbox]{width:16px;height:16px;accent-color:var(--primary);cursor:pointer;flex-shrink:0}
+.special-df-toggle-label{font-size:12px;font-weight:700;color:var(--primary)}
+.special-df-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:7px;padding:9px 10px;background:#e8f5f1;border:1.5px solid var(--primary-mid);border-radius:8px}
+.special-df-inner{position:relative;width:130px;flex-shrink:0}
+.special-df-input{width:100%;padding:8px 26px 8px 10px;border:1.5px solid var(--primary-mid);border-radius:7px;font-size:13px;font-family:'Sarabun',sans-serif;color:var(--text);background:#fff;outline:none;-webkit-appearance:none}
+.special-df-input:focus{border-color:var(--primary)}
+.special-df-suffix{position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:11px;color:var(--primary);font-weight:700;pointer-events:none}
+.special-df-price-wrap{position:relative;flex:1;min-width:110px}
+.special-df-price-input{width:100%;padding:8px 34px 8px 10px;border:1.5px solid var(--primary-mid);border-radius:7px;font-size:13px;font-family:'Sarabun',sans-serif;color:var(--text);background:#fff;outline:none;-webkit-appearance:none}
+.special-df-price-input:focus{border-color:var(--primary)}
+.special-df-price-suffix{position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:11px;color:var(--primary);font-weight:600;pointer-events:none}
+.special-df-note{width:100%;font-size:10px;color:var(--primary);opacity:.7;line-height:1.4}
+
 /* Course price — highlighted at bottom of each patient */
 .course-price-wrap{background:linear-gradient(135deg,#e8f5f1,#f2fbf7);border:2px solid var(--primary-mid);border-radius:9px;padding:10px 12px;margin-top:10px}
 .course-price-label{font-size:11px;font-weight:700;color:var(--primary);margin-bottom:6px}
@@ -611,7 +626,7 @@ function onHangingInput(){
 }
 
 /* ===== PATIENT / PROCEDURE DATA HELPERS ===== */
-function newProc(){return{name:'',tradeName:'',amount:''};}
+function newProc(){return{name:'',tradeName:'',amount:'',specialDf:false,specialDfPct:'',specialDfPrice:''};}
 function newPatient(){return{procs:[newProc()],coursePrice:''};}
 function newMach(){return{name:'',price:''};}
 
@@ -624,9 +639,15 @@ function flushAll(){
       const n=document.getElementById(`pn_${pi}_${si}`);
       const t=document.getElementById(`pt_${pi}_${si}`);
       const a=document.getElementById(`pa_${pi}_${si}`);
+      const chk=document.getElementById(`pdfchk_${pi}_${si}`);
+      const spct=document.getElementById(`pdfpct_${pi}_${si}`);
+      const sprice=document.getElementById(`pdfprice_${pi}_${si}`);
       if(n) pr.name=n.value;
       if(t) pr.tradeName=t.value;
       if(a) pr.amount=a.value;
+      if(chk) pr.specialDf=chk.checked;
+      if(spct) pr.specialDfPct=spct.value;
+      if(sprice) pr.specialDfPrice=sprice.value;
     });
   });
   machRows.forEach((r,i)=>{
@@ -710,6 +731,10 @@ function renderPatients(){
 function buildSubProc(pi,si,pr){
   const card=document.createElement('div');
   card.className='sub-proc-card';
+  card.id=`subProc_${pi}_${si}`;
+
+  const isSpecial=!!pr.specialDf;
+
   card.innerHTML=`
     <div class="sub-proc-header">
       <span class="sub-proc-badge">หัตถการที่ ${si+1}</span>
@@ -731,12 +756,44 @@ function buildSubProc(pi,si,pr){
         type="number" inputmode="numeric" min="0"
         value="${pr.amount||''}"
         oninput="this.value=this.value.replace(/[^0-9]/g,'');syncSubProc(${pi},${si},'amount',this.value)">
+    </div>
+    <label class="special-df-toggle" for="pdfchk_${pi}_${si}">
+      <input type="checkbox" id="pdfchk_${pi}_${si}"
+        ${isSpecial?'checked':''}
+        onchange="toggleSpecialDf(${pi},${si},this.checked)">
+      <span class="special-df-toggle-label">DF พิเศษ</span>
+    </label>
+    <div class="special-df-row" id="pdfrow_${pi}_${si}" style="display:${isSpecial?'flex':'none'}">
+      <div class="special-df-inner">
+        <input class="special-df-input" id="pdfpct_${pi}_${si}"
+          type="number" inputmode="decimal" min="0" max="100"
+          placeholder="% DF เฉพาะหัตถการนี้"
+          value="${pr.specialDfPct||''}"
+          oninput="syncSubProc(${pi},${si},'specialDfPct',this.value);calcPreview()">
+        <span class="special-df-suffix">%</span>
+      </div>
+      <div class="special-df-price-wrap">
+        <input class="special-df-price-input" id="pdfprice_${pi}_${si}"
+          type="number" inputmode="decimal" min="0"
+          placeholder="ราคาหัตถการนี้"
+          value="${pr.specialDfPrice||''}"
+          oninput="syncSubProc(${pi},${si},'specialDfPrice',this.value);calcPreview()">
+        <span class="special-df-price-suffix">บาท</span>
+      </div>
+      <div class="special-df-note">คิด DF จาก % นี้ × ราคา (ไม่ใช้ % DF และราคาคอร์สด้านบน)</div>
     </div>`;
   return card;
 }
 
 function syncSubProc(pi,si,field,val){
   if(patients[pi]&&patients[pi].procs[si]) patients[pi].procs[si][field]=val;
+}
+
+function toggleSpecialDf(pi,si,checked){
+  flushAll();
+  patients[pi].procs[si].specialDf=checked;
+  renderPatients();
+  calcPreview();
 }
 
 function addPatient(){
@@ -941,15 +998,37 @@ function calcPreview(){
   const machPct=parseFloat(document.getElementById('inMachPct').value)||0;
   const condition=document.getElementById('inCondition').value||'';
   const sitting=hourRate*hours;
+
+  /* procFee logic (corrected):
+     - sum all specialDfPrice for procs with specialDf=true in this patient
+     - deduct that sum from coursePrice → "normalBase"
+     - normalBase × procPct% = global DF for this patient
+     - each special proc: specialDfPrice × specialDfPct% = its own DF
+     This prevents double-counting. */
   let procFee=0;
-  patients.forEach(pat=>{procFee+=(parseFloat(pat.coursePrice)||0)*(procPct/100);});
+  let specialDfFee=0;
+  patients.forEach(pat=>{
+    const coursePrice=parseFloat(pat.coursePrice)||0;
+    let specialPriceSum=0;
+    pat.procs.forEach(pr=>{
+      if(pr.specialDf){
+        const sp=parseFloat(pr.specialDfPrice)||0;
+        const spct=parseFloat(pr.specialDfPct)||0;
+        specialPriceSum+=sp;
+        specialDfFee+=sp*(spct/100);
+      }
+    });
+    const normalBase=Math.max(0,coursePrice-specialPriceSum);
+    procFee+=normalBase*(procPct/100);
+  });
   let machFee=0;
   machRows.forEach(r=>{machFee+=(parseFloat(r.price)||0)*(machPct/100);});
 
-  const earned=sitting+procFee+machFee; /* ค่านั่ง+DF ทั้งหมด */
+  const totalProcFee=procFee+specialDfFee;
+  const earned=sitting+totalProcFee+machFee;
 
   document.getElementById('rSitting').textContent=sitting>0?fmt(sitting):'—';
-  document.getElementById('rProcFee').textContent=procFee>0?fmt(procFee):'—';
+  document.getElementById('rProcFee').textContent=totalProcFee>0?fmt(totalProcFee)+(specialDfFee>0?` (รวม DF พิเศษ ${fmt(specialDfFee)})`:''): '—';
   document.getElementById('rMachFee').textContent=machFee>0?fmt(machFee):'—';
 
   let total=0;
@@ -957,11 +1036,8 @@ function calcPreview(){
   const condTag=document.getElementById('rCondTag');
 
   if(condition==='guarantee'&&lump>0){
-    /* การันตี: เอาแบบที่มากกว่า */
     const useEarned=earned>lump;
     total=useEarned?earned:lump;
-
-    /* show guarantee banner */
     banner.classList.add('show');
     document.getElementById('gbEarned').textContent=fmt(earned);
     document.getElementById('gbLump').textContent=fmt(lump);
@@ -969,11 +1045,7 @@ function calcPreview(){
     const tag=document.getElementById('gbTag');
     if(useEarned){tag.textContent='ได้ค่านั่ง+DF';tag.className='guarantee-used-tag earn';}
     else{tag.textContent='ได้เวรเหมา';tag.className='guarantee-used-tag lump';}
-
-    /* hide lump row in summary (already in banner) */
     document.getElementById('rowLump').style.display='none';
-
-    /* tag on total */
     condTag.style.display='inline-block';
     if(useEarned){condTag.textContent='ชม+DF';condTag.style.background='#e8f5e9';condTag.style.color='#2e7d32';}
     else{condTag.textContent='การันตี';condTag.style.background='#fff3e0';condTag.style.color='#e65100';}
@@ -1005,10 +1077,25 @@ function saveDay(){
   const condition=document.getElementById('inCondition').value||'';
   const sitting=hourRate*hours;
   let procFee=0;
+  let specialDfFee=0;
   const savedPats=patients.filter(pat=>pat.procs.some(p=>p.name)||pat.coursePrice).map(pat=>{
-    const fee=(parseFloat(pat.coursePrice)||0)*(procPct/100);
+    const coursePrice=parseFloat(pat.coursePrice)||0;
+    let specialPriceSum=0;
+    const procs=pat.procs.map(pr=>{
+      let sdf=0;
+      if(pr.specialDf){
+        const sp=parseFloat(pr.specialDfPrice)||0;
+        const spct=parseFloat(pr.specialDfPct)||0;
+        sdf=sp*(spct/100);
+        specialPriceSum+=sp;
+        specialDfFee+=sdf;
+      }
+      return{...pr,specialDfFee:sdf};
+    });
+    const normalBase=Math.max(0,coursePrice-specialPriceSum);
+    const fee=normalBase*(procPct/100);
     procFee+=fee;
-    return{...pat,fee};
+    return{...pat,procs,fee};
   });
   let machFee=0;
   const savedMachs=machRows.filter(r=>r.name||r.price).map(r=>{
@@ -1016,7 +1103,7 @@ function saveDay(){
     machFee+=fee;
     return{...r,fee};
   });
-  const earned=sitting+procFee+machFee;
+  const earned=sitting+procFee+specialDfFee+machFee;
   let total;
   if(condition==='guarantee'&&lump>0){
     total=earned>lump?earned:lump;
