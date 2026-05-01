@@ -921,14 +921,14 @@ function renderMachRows(){
           <input class="proc-price-input" id="mp_${i}" placeholder="ราคาค่าเครื่อง"
             type="number" inputmode="decimal"
             value="${row.price||''}"
-            oninput="calcPreview()">
+            oninput="if(machRows[${i}])machRows[${i}].price=this.value;calcPreview()">
           <span class="proc-price-suffix">บาท</span>
         </div>
         <div style="position:relative;flex:1">
           <input class="proc-price-input" id="ma_${i}" placeholder="ปริมาณ / ช็อต"
             type="number" inputmode="numeric" min="0"
             value="${row.amount||''}"
-            oninput="this.value=this.value.replace(/[^0-9]/g,'')"
+            oninput="this.value=this.value.replace(/[^0-9]/g,'');if(machRows[${i}])machRows[${i}].amount=this.value;"
             style="border-color:#c5d0f0;padding-right:34px">
           <span class="proc-price-suffix">หน่วย</span>
         </div>
