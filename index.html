@@ -1176,7 +1176,7 @@ function saveDay(){
     return{...pat,procs,fee};
   });
   let machFee=0;
-  const savedMachs=machRows.filter(r=>r.name||r.price).map(r=>{
+  const savedMachs=machRows.filter(r=>r.name||r.price||r.amount).map(r=>{
     const fee=(parseFloat(r.price)||0)*(machPct/100);
     machFee+=fee;
     return{name:r.name||'',price:r.price||'',amount:r.amount||'',fee};
@@ -1190,6 +1190,7 @@ function saveDay(){
   }
   const data=getData(curYear,curMonth);
   data[selectedDay]={clinicId,condition,hourRate,hours,procPct,machPct,sitting,patients:savedPats,machs:savedMachs,lump,total};
+  console.log('DEBUG savedMachs:', JSON.stringify(savedMachs));
   saveData(curYear,curMonth,data);
   closeSheet();renderCalendar();
 }
