@@ -1052,7 +1052,7 @@ function openSheet(day){
   } else {
     patients=[newPatient()];
   }
-  machRows=dd.machs?JSON.parse(JSON.stringify(dd.machs.map(r=>({name:r.name||'',price:r.price||''})))):[newMach()];
+  machRows=dd.machs?JSON.parse(JSON.stringify(dd.machs.map(r=>({name:r.name||'',price:r.price||'',amount:r.amount||''})))):[newMach()];
   if(!machRows.length) machRows=[newMach()];
   renderPatients();
   renderMachRows();
