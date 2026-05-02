@@ -763,9 +763,9 @@ function buildSubProc(pi,si,pr){
         value="${pr.tradeName||''}"
         oninput="syncSubProc(${pi},${si},'tradeName',this.value)">
       <input class="sub-field" id="pa_${pi}_${si}" placeholder="ปริมาณ"
-        type="number" inputmode="numeric" min="0"
+        type="number" inputmode="decimal" min="0" step="any"
         value="${pr.amount||''}"
-        oninput="this.value=this.value.replace(/[^0-9]/g,'');syncSubProc(${pi},${si},'amount',this.value)">
+        oninput="syncSubProc(${pi},${si},'amount',this.value)">
     </div>
     <label class="special-df-toggle" for="pdfchk_${pi}_${si}">
       <input type="checkbox" id="pdfchk_${pi}_${si}"
@@ -926,9 +926,9 @@ function renderMachRows(){
         </div>
         <div style="position:relative;flex:1">
           <input class="proc-price-input" id="ma_${i}" placeholder="ปริมาณ / ช็อต"
-            type="text" inputmode="numeric"
+            type="number" inputmode="decimal" min="0" step="any"
             value="${row.amount||''}"
-            oninput="this.value=this.value.replace(/[^0-9]/g,'');if(machRows[${i}])machRows[${i}].amount=this.value;"
+            oninput="if(machRows[${i}])machRows[${i}].amount=this.value;"
             style="border-color:#c5d0f0;padding-right:34px">
           <span class="proc-price-suffix">หน่วย</span>
         </div>
@@ -1190,6 +1190,7 @@ function saveDay(){
   }
   const data=getData(curYear,curMonth);
   data[selectedDay]={clinicId,condition,hourRate,hours,procPct,machPct,sitting,patients:savedPats,machs:savedMachs,lump,total};
+  console.log('DEBUG savedMachs:', JSON.stringify(savedMachs));
   saveData(curYear,curMonth,data);
   closeSheet();renderCalendar();
 }
