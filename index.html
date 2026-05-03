@@ -1567,7 +1567,12 @@ function generateIncomeReport(){
       if(!dd||!dd.total)return;
       const cid=dd.clinicId||noClinicKey;
       if(!clinicMap[cid]){const cl=clinics.find(c=>c.id===cid);clinicMap[cid]={name:cl?cl.name:'(ไม่ระบุคลินิก)',abbr:cl?cl.abbr:'?',color:cl?cl.color:'#999',days:[]};}
-      clinicMap[cid].days.push({dateLabel:`${parseInt(day)} ${MONTHS_SHORT[m]} ${y+543}`,sitting:dd.sitting||0,procFee:dd.procFee||0,machFee:dd.machFee||0,lump:dd.lump||0,total:dd.total||0,condition:dd.condition||''});
+      clinicMap[cid].days.push({
+        dateLabel:`${parseInt(day)} ${MONTHS_SHORT[m]} ${y+543}`,
+        dateNum:y*10000+m*100+parseInt(day),
+        sitting:dd.sitting||0,procFee:dd.procFee||0,machFee:dd.machFee||0,
+        lump:dd.lump||0,total:dd.total||0,condition:dd.condition||''
+      });
     });
   });
   const labels=sortedKeys.map(k=>{const[y,m]=k.split('-');return MONTHS_SHORT[+m]+' '+(+y+543);});
@@ -1589,7 +1594,7 @@ function renderIncomeResult(clinicMap,title){
     const table=document.createElement('table');table.className='inc-table';
     table.innerHTML=`<thead><tr><th>วันที่</th><th class="r">ค่านั่ง</th><th class="r">DF หัตถการ</th><th class="r">DF เครื่อง</th><th class="r">DF รวม</th><th class="r">เวรเหมา</th><th class="r">รวม</th></tr></thead>`;
     const tbody=document.createElement('tbody');
-    cl.days.sort((a,b)=>a.dateLabel.localeCompare(b.dateLabel,'th'));
+    cl.days.sort((a,b)=>b.dateNum-a.dateNum);
     cl.days.forEach(d=>{
       cSit+=d.sitting;cProc+=d.procFee;cMach+=d.machFee;cLump+=d.lump;cTotal+=d.total;
       const tr=document.createElement('tr');
