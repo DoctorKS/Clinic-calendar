@@ -338,7 +338,6 @@ canvas.pie-canvas{max-width:100%}
   <div class="header-top">
     <h1>🏥 เวรคลินิก</h1>
     <div class="hdr-btns">
-      <button class="add-clinic-btn" onclick="injectTestData()" style="background:rgba(255,200,0,.25)">🧪 Test</button>
       <button class="add-clinic-btn" onclick="openClinicMgr()">＋ คลินิก</button>
     </div>
   </div>
@@ -1617,23 +1616,6 @@ async function saveIncomeScreenshot(){
   const el=document.getElementById('incReportCapture');
   try{const canvas=await html2canvas(el,{scale:2,useCORS:true,backgroundColor:'#ffffff',scrollX:0,scrollY:0,windowWidth:el.scrollWidth,windowHeight:el.scrollHeight});const link=document.createElement('a');link.download='สรุปค่าเวร.png';link.href=canvas.toDataURL('image/png');link.click();}
   catch(e){alert('กด ค้างที่รูปแล้วเลือก "บันทึกรูปภาพ" ครับ/ค่ะ');}
-}
-
-/* ===== TEST DATA ===== */
-function injectTestData(){
-  const clinics=getClinics();
-  let clA=clinics.find(c=>c.id==='test_cl_a');
-  let clB=clinics.find(c=>c.id==='test_cl_b');
-  if(!clA){clA={id:'test_cl_a',name:'Skin Glow Clinic',abbr:'SGC',color:'#1abc9c',hourRate:'500',hours:'4',procPct:'30',machPct:'20',lump:'',condition:''};clinics.push(clA);}
-  if(!clB){clB={id:'test_cl_b',name:'Beauty Plus',abbr:'BP',color:'#8e44ad',hourRate:'600',hours:'3',procPct:'25',machPct:'15',lump:'3000',condition:'guarantee'};clinics.push(clB);}
-  saveClinics(clinics);
-  const y=curYear,m=curMonth,data=getData(y,m);
-  data[3]={clinicId:clA.id,condition:'',hourRate:500,hours:4,procPct:30,machPct:20,sitting:2000,procFee:3600,machFee:1000,lump:0,patients:[{procs:[{name:'Botox',tradeName:'Azzalure',amount:'50'},{name:'Filler',tradeName:'Juvederm',amount:'1'}],coursePrice:'12000',fee:3600}],machs:[{name:'Ultraformer',price:'5000',amount:'300',fee:1000}],total:6600};
-  data[8]={clinicId:clB.id,condition:'guarantee',hourRate:600,hours:3,procPct:25,machPct:15,sitting:1800,procFee:875,machFee:525,lump:3000,patients:[{procs:[{name:'Mesofat',tradeName:'',amount:'5'}],coursePrice:'3500',fee:875}],machs:[{name:'Oligio',price:'3500',amount:'100',fee:525}],total:3200};
-  data[12]={clinicId:clA.id,condition:'',hourRate:500,hours:6,procPct:30,machPct:20,sitting:3000,procFee:4500,machFee:600,lump:0,patients:[{procs:[{name:'Polyneucleotide',tradeName:'Rejuran',amount:'2'}],coursePrice:'15000',fee:4500}],machs:[{name:'Ultraformer',price:'3000',amount:'200',fee:600}],total:8100};
-  data[20]={clinicId:clB.id,condition:'guarantee',hourRate:600,hours:2,procPct:25,machPct:15,sitting:1200,procFee:750,machFee:450,lump:3000,patients:[{procs:[{name:'Botox',tradeName:'Botox',amount:'30'}],coursePrice:'3000',fee:750}],machs:[{name:'Oligio',price:'3000',amount:'80',fee:450}],total:3000};
-  saveData(y,m,data);renderCalendar();
-  alert('✅ ใส่ข้อมูลทดสอบแล้ว!\nวันที่ 3, 12 = Skin Glow Clinic\nวันที่ 8, 20 = Beauty Plus (การันตี)\n\nกด "สรุปค่าเวร" เพื่อดูผล');
 }
 
 /* measure header height so hanging-bar sticks right below it */
