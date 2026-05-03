@@ -1604,11 +1604,17 @@ function renderIncomeResult(clinicMap,title){
     });
     const subTr=document.createElement('tr');subTr.className='total-row';
     subTr.innerHTML=`<td>รวม ${cl.days.length} เวร</td><td class="r">฿${Math.round(cSit).toLocaleString('th-TH')}</td><td class="r">฿${Math.round(cProc).toLocaleString('th-TH')}</td><td class="r">฿${Math.round(cMach).toLocaleString('th-TH')}</td><td class="r">฿${Math.round(cLump).toLocaleString('th-TH')}</td><td class="r">฿${Math.round(cTotal).toLocaleString('th-TH')}</td>`;
-    tbody.appendChild(subTr);table.appendChild(tbody);sec.appendChild(table);wrap.appendChild(sec);
+    tbody.appendChild(subTr);
+    // DF รวม row
+    const dfTr=document.createElement('tr');
+    dfTr.style.cssText='background:#f0faf6';
+    dfTr.innerHTML=`<td colspan="3" style="font-size:12px;color:var(--primary);font-weight:700;padding-left:14px">💰 DF รวม (หัตถการ + เครื่อง)</td><td colspan="3" class="r" style="color:var(--primary);font-weight:700">฿${Math.round(cProc+cMach).toLocaleString('th-TH')}</td>`;
+    tbody.appendChild(dfTr);
+    table.appendChild(tbody);sec.appendChild(table);wrap.appendChild(sec);
     gSit+=cSit;gProc+=cProc;gMach+=cMach;gLump+=cLump;gTotal+=cTotal;
   });
   const grandEl=document.createElement('div');grandEl.className='inc-grand';
-  grandEl.innerHTML=`<div><div class="inc-grand-label">รวมทุกคลินิก</div><div style="font-size:11px;opacity:.75;margin-top:2px">นั่ง ฿${Math.round(gSit).toLocaleString('th-TH')} · DF หัตถการ ฿${Math.round(gProc).toLocaleString('th-TH')} · DF เครื่อง ฿${Math.round(gMach).toLocaleString('th-TH')} · เหมา ฿${Math.round(gLump).toLocaleString('th-TH')}</div></div><div class="inc-grand-val">฿${Math.round(gTotal).toLocaleString('th-TH')}</div>`;
+  grandEl.innerHTML=`<div><div class="inc-grand-label">รวมทุกคลินิก</div><div style="font-size:11px;opacity:.75;margin-top:2px">นั่ง ฿${Math.round(gSit).toLocaleString('th-TH')} · DF รวม ฿${Math.round(gProc+gMach).toLocaleString('th-TH')} · เหมา ฿${Math.round(gLump).toLocaleString('th-TH')}</div></div><div class="inc-grand-val">฿${Math.round(gTotal).toLocaleString('th-TH')}</div>`;
   wrap.appendChild(grandEl);
 }
 
