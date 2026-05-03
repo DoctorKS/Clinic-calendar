@@ -311,6 +311,25 @@ canvas.pie-canvas{max-width:100%}
 .proc-table tr:last-child td{border-bottom:none}
 .proc-table .td-num{text-align:right;font-weight:600;color:var(--primary)}
 #reportCapture{background:#fff}
+
+/* ===== INCOME REPORT ===== */
+.inc-clinic-section{margin-bottom:20px}
+.inc-clinic-header{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.inc-clinic-dot{width:32px;height:32px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;color:#fff}
+.inc-clinic-name{font-size:14px;font-weight:700;color:var(--text)}
+.inc-table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:6px}
+.inc-table th{background:var(--primary-light);color:var(--primary);font-weight:700;padding:7px 10px;text-align:left;border-bottom:2px solid var(--border)}
+.inc-table th.r{text-align:right}
+.inc-table td{padding:7px 10px;border-bottom:1px solid var(--border);color:var(--text)}
+.inc-table td.r{text-align:right;font-weight:600}
+.inc-table td.muted{color:var(--text-muted);font-size:12px}
+.inc-table tr.total-row td{font-weight:700;color:var(--primary);background:var(--primary-light);border-top:2px solid var(--border)}
+.inc-table tr:last-child td{border-bottom:none}
+.inc-grand{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:var(--primary);color:#fff;border-radius:var(--radius-sm);margin-top:14px}
+.inc-grand-label{font-size:14px;font-weight:600;opacity:.85}
+.inc-grand-val{font-size:22px;font-weight:700}
+.inc-month-title{font-size:15px;font-weight:700;color:var(--primary);margin-bottom:16px}
+.inc-no-data{text-align:center;padding:32px 20px;color:var(--text-muted);font-size:14px}
 </style>
 </head>
 <body>
@@ -319,6 +338,7 @@ canvas.pie-canvas{max-width:100%}
   <div class="header-top">
     <h1>🏥 เวรคลินิก</h1>
     <div class="hdr-btns">
+      <button class="add-clinic-btn" onclick="injectTestData()" style="background:rgba(255,200,0,.25)">🧪 Test</button>
       <button class="add-clinic-btn" onclick="openClinicMgr()">＋ คลินิก</button>
     </div>
   </div>
@@ -350,7 +370,10 @@ canvas.pie-canvas{max-width:100%}
     <div class="summary-label">รวมเดือนนี้ (รวมค่าแขวน)</div>
     <div class="summary-sub" id="summaryCount">0 เวร</div>
   </div>
-  <button class="summary-report-btn" onclick="openReport()">📊 สรุปหัตถการ</button>
+  <div style="display:flex;gap:6px;flex-shrink:0">
+    <button class="summary-report-btn" onclick="openIncomeReport()">💰 สรุปค่าเวร</button>
+    <button class="summary-report-btn" onclick="openReport()">📊 สรุปหัตถการ</button>
+  </div>
   <div style="text-align:right"><div class="summary-total" id="summaryTotal">฿0</div></div>
 </div>
 
@@ -546,6 +569,40 @@ canvas.pie-canvas{max-width:100%}
     <div style="padding:0 20px 8px;display:flex;gap:10px">
       <button class="btn" style="background:#e8f0fe;color:#2255cc" onclick="backToMonthPicker()">← เปลี่ยนเดือน</button>
       <button class="btn btn-primary" onclick="saveScreenshot()">📸 บันทึกรูป</button>
+    </div>
+  </div>
+ </div>
+</div>
+
+<!-- ===== INCOME REPORT SHEET ===== -->
+<div class="report-overlay" id="incomeReportOverlay" onclick="handleIncomeReportClick(event)">
+ <div class="report-sheet">
+  <div class="sheet-handle"></div>
+  <div class="report-header">
+    <div><div class="report-title">💰 สรุปค่าเวร</div></div>
+    <button class="close-btn" onclick="closeIncomeReport()">✕</button>
+  </div>
+  <!-- Month picker (reuses same pattern) -->
+  <div id="incPickerView">
+    <div style="padding:12px 20px 4px;font-size:13px;color:var(--text-muted);font-weight:600">เลือกเดือนที่ต้องการดูสรุป</div>
+    <div style="display:flex;gap:6px;padding:8px 20px 0;overflow-x:auto" id="incYearTabs"></div>
+    <div class="month-picker-grid" id="incMonthGrid"></div>
+    <div style="padding:8px 20px 4px;display:flex;gap:8px;align-items:center">
+      <div style="font-size:12px;color:var(--text-muted);flex:1" id="incSelCount">ยังไม่ได้เลือกเดือน</div>
+      <button style="background:var(--bg);border:1.5px solid var(--border);border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;font-family:'Sarabun',sans-serif;cursor:pointer;color:var(--text-muted)" onclick="incClearAll()">ล้างทั้งหมด</button>
+    </div>
+    <div style="padding:8px 20px 16px">
+      <button class="btn btn-primary" onclick="generateIncomeReport()" style="width:100%">ตกลง — ดูสรุป</button>
+    </div>
+  </div>
+  <!-- Result -->
+  <div id="incResultView" style="display:none">
+    <div id="incReportCapture">
+      <div class="report-content" id="incReportContent"></div>
+    </div>
+    <div style="padding:0 20px 8px;display:flex;gap:10px">
+      <button class="btn" style="background:#e8f0fe;color:#2255cc" onclick="backToIncPicker()">← เปลี่ยนเดือน</button>
+      <button class="btn btn-primary" onclick="saveIncomeScreenshot()">📸 บันทึกรูป</button>
     </div>
   </div>
  </div>
@@ -1189,8 +1246,10 @@ function saveDay(){
     total=earned+lump;
   }
   const data=getData(curYear,curMonth);
-  data[selectedDay]={clinicId,condition,hourRate,hours,procPct,machPct,sitting,patients:savedPats,machs:savedMachs,lump,total};
-  console.log('DEBUG savedMachs:', JSON.stringify(savedMachs));
+  const totalProcFeeCalc=procFee+specialDfFee;
+  data[selectedDay]={clinicId,condition,hourRate,hours,procPct,machPct,
+    sitting,procFee:totalProcFeeCalc,machFee,lump,
+    patients:savedPats,machs:savedMachs,total};
   saveData(curYear,curMonth,data);
   closeSheet();renderCalendar();
 }
@@ -1452,6 +1511,130 @@ async function saveScreenshot(){
 
 renderColorGrid();
 renderCalendar();
+
+/* ===== INCOME REPORT ===== */
+let incYear=today.getFullYear(), incSelectedMonths=new Set();
+
+function openIncomeReport(){
+  incYear=today.getFullYear();incSelectedMonths=new Set();
+  incSelectedMonths.add(incYear+'-'+today.getMonth());
+  renderIncYearTabs();renderIncMonthGrid();updateIncSelCount();
+  document.getElementById('incPickerView').style.display='block';
+  document.getElementById('incResultView').style.display='none';
+  document.getElementById('incomeReportOverlay').classList.add('open');
+  document.body.style.overflow='hidden';
+}
+function closeIncomeReport(){document.getElementById('incomeReportOverlay').classList.remove('open');document.body.style.overflow='';}
+function handleIncomeReportClick(e){if(e.target===document.getElementById('incomeReportOverlay'))closeIncomeReport();}
+function renderIncYearTabs(){
+  const wrap=document.getElementById('incYearTabs');wrap.innerHTML='';
+  for(let y=today.getFullYear();y>=today.getFullYear()-2;y--){
+    const btn=document.createElement('button');btn.className='mpick-year-tab'+(y===incYear?' active':'');
+    btn.textContent=(y+543)+' ('+y+')';
+    btn.onclick=()=>{incYear=y;renderIncYearTabs();renderIncMonthGrid();};
+    wrap.appendChild(btn);
+  }
+}
+function renderIncMonthGrid(){
+  const grid=document.getElementById('incMonthGrid');grid.innerHTML='';
+  const toAbs=(y,m)=>y*12+m;
+  const absSelected=[...incSelectedMonths].map(k=>{const[y,m]=k.split('-');return toAbs(+y,+m);});
+  const absMin=absSelected.length?Math.min(...absSelected):null;
+  const absMax=absSelected.length?Math.max(...absSelected):null;
+  MONTHS_SHORT.forEach((m,i)=>{
+    const key=incYear+'-'+i;const isSel=incSelectedMonths.has(key);
+    const absIdx=toAbs(incYear,i);const inRange=absMin!==null&&absMax!==null&&absIdx>absMin&&absIdx<absMax&&!isSel;
+    const btn=document.createElement('button');btn.className='mpick-btn'+(isSel?' selected':inRange?' in-range':'');btn.textContent=m;
+    btn.onclick=()=>{if(incSelectedMonths.has(key))incSelectedMonths.delete(key);else incSelectedMonths.add(key);renderIncMonthGrid();updateIncSelCount();};
+    grid.appendChild(btn);
+  });
+}
+function updateIncSelCount(){
+  const n=incSelectedMonths.size;const el=document.getElementById('incSelCount');
+  if(!n){el.textContent='ยังไม่ได้เลือกเดือน';el.style.color='var(--text-muted)';}
+  else{const labels=[...incSelectedMonths].sort().map(k=>{const[y,m]=k.split('-');return MONTHS_SHORT[+m]+' '+(+y+543);});el.textContent='เลือกแล้ว '+n+' เดือน: '+labels.join(', ');el.style.color='var(--primary)';}
+}
+function incClearAll(){incSelectedMonths.clear();renderIncMonthGrid();updateIncSelCount();}
+function backToIncPicker(){document.getElementById('incPickerView').style.display='block';document.getElementById('incResultView').style.display='none';renderIncYearTabs();renderIncMonthGrid();updateIncSelCount();}
+
+function generateIncomeReport(){
+  if(!incSelectedMonths.size){alert('กรุณาเลือกอย่างน้อย 1 เดือน');return;}
+  const clinics=getClinics();
+  const sortedKeys=[...incSelectedMonths].sort((a,b)=>{const[ay,am]=a.split('-').map(Number);const[by,bm]=b.split('-').map(Number);return ay!==by?ay-by:am-bm;});
+  const clinicMap={};const noClinicKey='__none__';
+  sortedKeys.forEach(key=>{
+    const[y,m]=key.split('-').map(Number);const data=getData(y,m);
+    Object.entries(data).forEach(([day,dd])=>{
+      if(!dd||!dd.total)return;
+      const cid=dd.clinicId||noClinicKey;
+      if(!clinicMap[cid]){const cl=clinics.find(c=>c.id===cid);clinicMap[cid]={name:cl?cl.name:'(ไม่ระบุคลินิก)',abbr:cl?cl.abbr:'?',color:cl?cl.color:'#999',days:[]};}
+      clinicMap[cid].days.push({dateLabel:`${parseInt(day)} ${MONTHS_SHORT[m]} ${y+543}`,sitting:dd.sitting||0,procFee:dd.procFee||0,machFee:dd.machFee||0,lump:dd.lump||0,total:dd.total||0,condition:dd.condition||''});
+    });
+  });
+  const labels=sortedKeys.map(k=>{const[y,m]=k.split('-');return MONTHS_SHORT[+m]+' '+(+y+543);});
+  const title=labels.length<=3?labels.join(', '):labels[0]+' – '+labels[labels.length-1]+' ('+labels.length+' เดือน)';
+  renderIncomeResult(clinicMap,title);
+  document.getElementById('incPickerView').style.display='none';
+  document.getElementById('incResultView').style.display='block';
+}
+
+function renderIncomeResult(clinicMap,title){
+  const wrap=document.getElementById('incReportContent');
+  wrap.innerHTML=`<div class="inc-month-title">สรุปค่าเวร — ${title}</div>`;
+  if(!Object.keys(clinicMap).length){wrap.innerHTML+='<div class="inc-no-data">ไม่มีข้อมูลในช่วงที่เลือก</div>';return;}
+  let gTotal=0,gSit=0,gProc=0,gMach=0,gLump=0;
+  Object.values(clinicMap).forEach(cl=>{
+    let cSit=0,cProc=0,cMach=0,cLump=0,cTotal=0;
+    const sec=document.createElement('div');sec.className='inc-clinic-section';
+    sec.innerHTML=`<div class="inc-clinic-header"><div class="inc-clinic-dot" style="background:${cl.color}">${cl.abbr}</div><div class="inc-clinic-name">${cl.name}</div></div>`;
+    const table=document.createElement('table');table.className='inc-table';
+    table.innerHTML=`<thead><tr><th>วันที่</th><th class="r">ค่านั่ง</th><th class="r">DF หัตถการ</th><th class="r">DF เครื่อง</th><th class="r">เวรเหมา</th><th class="r">รวม</th></tr></thead>`;
+    const tbody=document.createElement('tbody');
+    cl.days.sort((a,b)=>a.dateLabel.localeCompare(b.dateLabel,'th'));
+    cl.days.forEach(d=>{
+      cSit+=d.sitting;cProc+=d.procFee;cMach+=d.machFee;cLump+=d.lump;cTotal+=d.total;
+      const tr=document.createElement('tr');
+      const gtag=d.condition==='guarantee'?` <span style="font-size:9px;background:#fff3e0;color:#e65100;border-radius:6px;padding:1px 4px;vertical-align:middle">การันตี</span>`:'';
+      tr.innerHTML=`<td>${d.dateLabel}${gtag}</td>
+        <td class="r">${d.sitting>0?'฿'+Math.round(d.sitting).toLocaleString('th-TH'):'—'}</td>
+        <td class="r">${d.procFee>0?'฿'+Math.round(d.procFee).toLocaleString('th-TH'):'—'}</td>
+        <td class="r">${d.machFee>0?'฿'+Math.round(d.machFee).toLocaleString('th-TH'):'—'}</td>
+        <td class="r">${d.lump>0?'฿'+Math.round(d.lump).toLocaleString('th-TH'):'—'}</td>
+        <td class="r" style="color:var(--primary);font-weight:700">฿${Math.round(d.total).toLocaleString('th-TH')}</td>`;
+      tbody.appendChild(tr);
+    });
+    const subTr=document.createElement('tr');subTr.className='total-row';
+    subTr.innerHTML=`<td>รวม ${cl.days.length} เวร</td><td class="r">฿${Math.round(cSit).toLocaleString('th-TH')}</td><td class="r">฿${Math.round(cProc).toLocaleString('th-TH')}</td><td class="r">฿${Math.round(cMach).toLocaleString('th-TH')}</td><td class="r">฿${Math.round(cLump).toLocaleString('th-TH')}</td><td class="r">฿${Math.round(cTotal).toLocaleString('th-TH')}</td>`;
+    tbody.appendChild(subTr);table.appendChild(tbody);sec.appendChild(table);wrap.appendChild(sec);
+    gSit+=cSit;gProc+=cProc;gMach+=cMach;gLump+=cLump;gTotal+=cTotal;
+  });
+  const grandEl=document.createElement('div');grandEl.className='inc-grand';
+  grandEl.innerHTML=`<div><div class="inc-grand-label">รวมทุกคลินิก</div><div style="font-size:11px;opacity:.75;margin-top:2px">นั่ง ฿${Math.round(gSit).toLocaleString('th-TH')} · DF หัตถการ ฿${Math.round(gProc).toLocaleString('th-TH')} · DF เครื่อง ฿${Math.round(gMach).toLocaleString('th-TH')} · เหมา ฿${Math.round(gLump).toLocaleString('th-TH')}</div></div><div class="inc-grand-val">฿${Math.round(gTotal).toLocaleString('th-TH')}</div>`;
+  wrap.appendChild(grandEl);
+}
+
+async function saveIncomeScreenshot(){
+  const el=document.getElementById('incReportCapture');
+  try{const canvas=await html2canvas(el,{scale:2,useCORS:true,backgroundColor:'#ffffff',scrollX:0,scrollY:0,windowWidth:el.scrollWidth,windowHeight:el.scrollHeight});const link=document.createElement('a');link.download='สรุปค่าเวร.png';link.href=canvas.toDataURL('image/png');link.click();}
+  catch(e){alert('กด ค้างที่รูปแล้วเลือก "บันทึกรูปภาพ" ครับ/ค่ะ');}
+}
+
+/* ===== TEST DATA ===== */
+function injectTestData(){
+  const clinics=getClinics();
+  let clA=clinics.find(c=>c.id==='test_cl_a');
+  let clB=clinics.find(c=>c.id==='test_cl_b');
+  if(!clA){clA={id:'test_cl_a',name:'Skin Glow Clinic',abbr:'SGC',color:'#1abc9c',hourRate:'500',hours:'4',procPct:'30',machPct:'20',lump:'',condition:''};clinics.push(clA);}
+  if(!clB){clB={id:'test_cl_b',name:'Beauty Plus',abbr:'BP',color:'#8e44ad',hourRate:'600',hours:'3',procPct:'25',machPct:'15',lump:'3000',condition:'guarantee'};clinics.push(clB);}
+  saveClinics(clinics);
+  const y=curYear,m=curMonth,data=getData(y,m);
+  data[3]={clinicId:clA.id,condition:'',hourRate:500,hours:4,procPct:30,machPct:20,sitting:2000,procFee:3600,machFee:1000,lump:0,patients:[{procs:[{name:'Botox',tradeName:'Azzalure',amount:'50'},{name:'Filler',tradeName:'Juvederm',amount:'1'}],coursePrice:'12000',fee:3600}],machs:[{name:'Ultraformer',price:'5000',amount:'300',fee:1000}],total:6600};
+  data[8]={clinicId:clB.id,condition:'guarantee',hourRate:600,hours:3,procPct:25,machPct:15,sitting:1800,procFee:875,machFee:525,lump:3000,patients:[{procs:[{name:'Mesofat',tradeName:'',amount:'5'}],coursePrice:'3500',fee:875}],machs:[{name:'Oligio',price:'3500',amount:'100',fee:525}],total:3200};
+  data[12]={clinicId:clA.id,condition:'',hourRate:500,hours:6,procPct:30,machPct:20,sitting:3000,procFee:4500,machFee:600,lump:0,patients:[{procs:[{name:'Polyneucleotide',tradeName:'Rejuran',amount:'2'}],coursePrice:'15000',fee:4500}],machs:[{name:'Ultraformer',price:'3000',amount:'200',fee:600}],total:8100};
+  data[20]={clinicId:clB.id,condition:'guarantee',hourRate:600,hours:2,procPct:25,machPct:15,sitting:1200,procFee:750,machFee:450,lump:3000,patients:[{procs:[{name:'Botox',tradeName:'Botox',amount:'30'}],coursePrice:'3000',fee:750}],machs:[{name:'Oligio',price:'3000',amount:'80',fee:450}],total:3000};
+  saveData(y,m,data);renderCalendar();
+  alert('✅ ใส่ข้อมูลทดสอบแล้ว!\nวันที่ 3, 12 = Skin Glow Clinic\nวันที่ 8, 20 = Beauty Plus (การันตี)\n\nกด "สรุปค่าเวร" เพื่อดูผล');
+}
 
 /* measure header height so hanging-bar sticks right below it */
 (function setHeaderH(){
