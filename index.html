@@ -1587,7 +1587,7 @@ function renderIncomeResult(clinicMap,title){
     const sec=document.createElement('div');sec.className='inc-clinic-section';
     sec.innerHTML=`<div class="inc-clinic-header"><div class="inc-clinic-dot" style="background:${cl.color}">${cl.abbr}</div><div class="inc-clinic-name">${cl.name}</div></div>`;
     const table=document.createElement('table');table.className='inc-table';
-    table.innerHTML=`<thead><tr><th>วันที่</th><th class="r">ค่านั่ง</th><th class="r">DF หัตถการ</th><th class="r">DF เครื่อง</th><th class="r">เวรเหมา</th><th class="r">รวม</th></tr></thead>`;
+    table.innerHTML=`<thead><tr><th>วันที่</th><th class="r">ค่านั่ง</th><th class="r">DF หัตถการ</th><th class="r">DF เครื่อง</th><th class="r">DF รวม</th><th class="r">เวรเหมา</th><th class="r">รวม</th></tr></thead>`;
     const tbody=document.createElement('tbody');
     cl.days.sort((a,b)=>a.dateLabel.localeCompare(b.dateLabel,'th'));
     cl.days.forEach(d=>{
@@ -1598,23 +1598,18 @@ function renderIncomeResult(clinicMap,title){
         <td class="r">${d.sitting>0?'฿'+Math.round(d.sitting).toLocaleString('th-TH'):'—'}</td>
         <td class="r">${d.procFee>0?'฿'+Math.round(d.procFee).toLocaleString('th-TH'):'—'}</td>
         <td class="r">${d.machFee>0?'฿'+Math.round(d.machFee).toLocaleString('th-TH'):'—'}</td>
+        <td class="r" style="color:var(--primary-mid);font-weight:700">${(d.procFee+d.machFee)>0?'฿'+Math.round(d.procFee+d.machFee).toLocaleString('th-TH'):'—'}</td>
         <td class="r">${d.lump>0?'฿'+Math.round(d.lump).toLocaleString('th-TH'):'—'}</td>
         <td class="r" style="color:var(--primary);font-weight:700">฿${Math.round(d.total).toLocaleString('th-TH')}</td>`;
       tbody.appendChild(tr);
     });
     const subTr=document.createElement('tr');subTr.className='total-row';
-    subTr.innerHTML=`<td>รวม ${cl.days.length} เวร</td><td class="r">฿${Math.round(cSit).toLocaleString('th-TH')}</td><td class="r">฿${Math.round(cProc).toLocaleString('th-TH')}</td><td class="r">฿${Math.round(cMach).toLocaleString('th-TH')}</td><td class="r">฿${Math.round(cLump).toLocaleString('th-TH')}</td><td class="r">฿${Math.round(cTotal).toLocaleString('th-TH')}</td>`;
-    tbody.appendChild(subTr);
-    // DF รวม row
-    const dfTr=document.createElement('tr');
-    dfTr.style.cssText='background:#f0faf6';
-    dfTr.innerHTML=`<td colspan="3" style="font-size:12px;color:var(--primary);font-weight:700;padding-left:14px">💰 DF รวม (หัตถการ + เครื่อง)</td><td colspan="3" class="r" style="color:var(--primary);font-weight:700">฿${Math.round(cProc+cMach).toLocaleString('th-TH')}</td>`;
-    tbody.appendChild(dfTr);
-    table.appendChild(tbody);sec.appendChild(table);wrap.appendChild(sec);
+    subTr.innerHTML=`<td>รวม ${cl.days.length} เวร</td><td class="r">฿${Math.round(cSit).toLocaleString('th-TH')}</td><td class="r">฿${Math.round(cProc).toLocaleString('th-TH')}</td><td class="r">฿${Math.round(cMach).toLocaleString('th-TH')}</td><td class="r">฿${Math.round(cProc+cMach).toLocaleString('th-TH')}</td><td class="r">฿${Math.round(cLump).toLocaleString('th-TH')}</td><td class="r">฿${Math.round(cTotal).toLocaleString('th-TH')}</td>`;
+    tbody.appendChild(subTr);table.appendChild(tbody);sec.appendChild(table);wrap.appendChild(sec);
     gSit+=cSit;gProc+=cProc;gMach+=cMach;gLump+=cLump;gTotal+=cTotal;
   });
   const grandEl=document.createElement('div');grandEl.className='inc-grand';
-  grandEl.innerHTML=`<div><div class="inc-grand-label">รวมทุกคลินิก</div><div style="font-size:11px;opacity:.75;margin-top:2px">นั่ง ฿${Math.round(gSit).toLocaleString('th-TH')} · DF รวม ฿${Math.round(gProc+gMach).toLocaleString('th-TH')} · เหมา ฿${Math.round(gLump).toLocaleString('th-TH')}</div></div><div class="inc-grand-val">฿${Math.round(gTotal).toLocaleString('th-TH')}</div>`;
+  grandEl.innerHTML=`<div><div class="inc-grand-label">รวมทุกคลินิก</div><div style="font-size:11px;opacity:.75;margin-top:2px">นั่ง ฿${Math.round(gSit).toLocaleString('th-TH')} · DF หัตถการ ฿${Math.round(gProc).toLocaleString('th-TH')} · DF เครื่อง ฿${Math.round(gMach).toLocaleString('th-TH')} · เหมา ฿${Math.round(gLump).toLocaleString('th-TH')}</div></div><div class="inc-grand-val">฿${Math.round(gTotal).toLocaleString('th-TH')}</div>`;
   wrap.appendChild(grandEl);
 }
 
