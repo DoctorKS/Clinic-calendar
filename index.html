@@ -17,7 +17,7 @@
   --border:#dde8e4;--danger:#e84040;--radius:16px;--radius-sm:10px;
   --cell-min-h:64px;--day-num-size:13px;--day-income-size:9px;--badge-size:7.5px;
   --form-font:16px;--label-font:13px;--sheet-max:640px;--body-max:430px;
-  --header-pt:52px;--summary-pad:14px 20px 28px;h
+  --header-pt:52px;--summary-pad:14px 20px 28px;
 }
 @media(min-width:768px){
   :root{--cell-min-h:96px;--day-num-size:16px;--day-income-size:12px;--badge-size:10px;
@@ -689,15 +689,15 @@ let patients=[], machRows=[];
 /* =====================================================
    SUPABASE CONFIG — ใส่ค่าจาก Project Settings > API
    ===================================================== */
-const SB_URL = 'https://oumsfyjefpwzecgjckii.supabase.co';   // เช่น https://xxxxxxxxxxxx.supabase.co
-const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im91bXNmeWplZnB3emVjZ2pja2lpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc4ODAxNjIsImV4cCI6MjA5MzQ1NjE2Mn0.epSLX2etMDLaGQ2NU3a6IV6RwXg89zfN0RoEtImg9pI';   // anon public key
+const SB_URL = '';   // เช่น https://xxxxxxxxxxxx.supabase.co
+const SB_KEY = '';   // anon public key
 
 /* =====================================================
    SUPABASE HELPERS — thin fetch wrapper
    ===================================================== */
-let sbSession = null; // { access_token, user }
+let _sbSession = null; // { access_token, user }
 
-const sbReady = () => SB_URL && SB_KEY;
+const sbReady = () => !!(SB_URL && SB_KEY);
 
 async function sbFetch(path, opts={}){
   if(!sbReady()) return null;
@@ -705,7 +705,7 @@ async function sbFetch(path, opts={}){
     ...opts,
     headers:{
       'apikey': SB_KEY,
-      'Authorization': 'Bearer ' + SB_KEY,
+      'Authorization': 'Bearer ' + _sbSession.access_token,
       'Content-Type': 'application/json',
       'Prefer': opts.prefer||'',
       ...(opts.headers||{})
@@ -719,7 +719,7 @@ async function sbFetch(path, opts={}){
 async function sbUpsert(table, row){
   return sbFetch('/rest/v1/'+table, {
     method:'POST', prefer:'resolution=merge-duplicates,return=minimal',
-    body: JSON.stringify(row)
+    body: JSON.stringify({...row, user_id: _sbSession.user.id})
   });
 }
 
@@ -732,7 +732,7 @@ async function sbDelete(table, filter){
 }
 
 function sbLoadSession(){
-  try{const s=localStorage.getItem('sb_session');if(s)sbSession=JSON.parse(s);}catch(e){}
+  try{const s=localStorage.getItem('sb_session');if(s)_sbSession=JSON.parse(s);}catch(e){}
 }
 
 /* =====================================================
@@ -1525,7 +1525,7 @@ async function clearDay(){
   const dateStr=`${curYear}-${String(curMonth+1).padStart(2,'0')}-${String(selectedDay).padStart(2,'0')}`;
   delete data[selectedDay];
   await saveData(curYear,curMonth,data);
-  if(sbReady()) sbDelete('shifts','shift_date=eq.'+dateStr+'&user_id=eq.'+sbSession.user.id);
+  if(sbReady()) sbDelete('shifts','shift_date=eq.'+dateStr);
   closeSheet();renderCalendar();
 }
 
@@ -1791,7 +1791,7 @@ async function saveScreenshot(){
 renderColorGrid();
 sbLoadSession();
 renderCalendar();
-if(sbSession) pullFromSupabase();
+if(_sbSession) pullFromSupabase();
 
 /* ===== INCOME REPORT ===== */
 let incYear=today.getFullYear(), incSelectedMonths=new Set();
