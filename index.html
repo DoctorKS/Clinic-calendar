@@ -17,7 +17,7 @@
   --border:#dde8e4;--danger:#e84040;--radius:16px;--radius-sm:10px;
   --cell-min-h:64px;--day-num-size:13px;--day-income-size:9px;--badge-size:7.5px;
   --form-font:16px;--label-font:13px;--sheet-max:640px;--body-max:430px;
-  --header-pt:52px;--summary-pad:14px 20px 28px;
+  --header-pt:52px;--summary-pad:14px 20px 28px;h
 }
 @media(min-width:768px){
   :root{--cell-min-h:96px;--day-num-size:16px;--day-income-size:12px;--badge-size:10px;
@@ -697,7 +697,7 @@ const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
    ===================================================== */
 let sbSession = null; // { access_token, user }
 
-const sbReady = () => SB_URL && SB_KEY && sbSession;
+const sbReady = () => SB_URL && SB_KEY;
 
 async function sbFetch(path, opts={}){
   if(!sbReady()) return null;
@@ -705,7 +705,7 @@ async function sbFetch(path, opts={}){
     ...opts,
     headers:{
       'apikey': SB_KEY,
-      'Authorization': 'Bearer ' + sbSession.access_token,
+      'Authorization': 'Bearer ' + SB_KEY,
       'Content-Type': 'application/json',
       'Prefer': opts.prefer||'',
       ...(opts.headers||{})
@@ -719,7 +719,7 @@ async function sbFetch(path, opts={}){
 async function sbUpsert(table, row){
   return sbFetch('/rest/v1/'+table, {
     method:'POST', prefer:'resolution=merge-duplicates,return=minimal',
-    body: JSON.stringify({...row, user_id: sbSession.user.id})
+    body: JSON.stringify(row)
   });
 }
 
