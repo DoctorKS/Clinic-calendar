@@ -628,6 +628,13 @@ canvas.pie-canvas{max-width:100%}
     <div class="backup-status" id="importStatus"></div>
   </div>
 
+  <div class="backup-section">
+    <div class="backup-section-title">☁️ Restore จาก Cloud</div>
+    <div class="backup-section-desc">ดึงข้อมูลทั้งหมดจาก Supabase กลับมาใส่เครื่องนี้ — ใช้เมื่อ data หายหรือเปิดเครื่องใหม่</div>
+    <button class="backup-btn backup-btn-import" id="restoreBtn" onclick="restoreFromCloud()">🔄 Restore จาก Supabase</button>
+    <div class="backup-status" id="restoreStatus"></div>
+  </div>
+
  </div>
 </div>
 
@@ -1965,7 +1972,28 @@ function importData(event){
   event.target.value='';
 }
 
-/* measure header height so hanging-bar sticks right below it */
+async function restoreFromCloud(){
+  const btn=document.getElementById('restoreBtn');
+  const status=document.getElementById('restoreStatus');
+  if(!sbReady()){
+    status.textContent='❌ ยังไม่ได้ตั้งค่า Supabase (SB_URL / SB_KEY)';
+    status.className='backup-status err';return;
+  }
+  btn.textContent='🔄 กำลัง Restore...';
+  btn.disabled=true;
+  status.className='backup-status';
+  try{
+    await pullFromSupabase();
+    status.textContent='✅ Restore สำเร็จ — กำลัง reload...';
+    status.className='backup-status ok';
+    setTimeout(()=>location.reload(),1200);
+  }catch(e){
+    status.textContent='❌ Restore ไม่สำเร็จ: '+e.message;
+    status.className='backup-status err';
+    btn.textContent='🔄 Restore จาก Supabase';
+    btn.disabled=false;
+  }
+}
 (function setHeaderH(){
   const hdr=document.querySelector('.header');
   const wdays=document.querySelector('.weekdays');
