@@ -175,6 +175,14 @@ body{font-family:'Sarabun',sans-serif;background:var(--bg);color:var(--text);min
 .sub-field:focus{border-color:var(--primary-mid)}
 .sub-field::placeholder{color:#aaa}
 
+/* Trade name autocomplete */
+.trade-wrap{flex:1;position:relative}
+.trade-dropdown{position:absolute;top:100%;left:0;right:0;background:#fff;border:1.5px solid var(--primary-mid);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.12);z-index:500;max-height:160px;overflow-y:auto;margin-top:2px;display:none}
+.trade-dropdown.open{display:block}
+.trade-option{padding:9px 12px;font-size:13px;font-family:'Sarabun',sans-serif;color:var(--text);cursor:pointer;border-bottom:1px solid var(--border)}
+.trade-option:last-child{border-bottom:none}
+.trade-option:active,.trade-option:hover{background:var(--primary-light);color:var(--primary)}
+
 .add-sub-btn{width:100%;padding:7px;border:1.5px dashed var(--primary-mid);border-radius:8px;background:var(--primary-light);font-size:12px;font-weight:600;color:var(--primary);font-family:'Sarabun',sans-serif;cursor:pointer;margin-top:6px;margin-bottom:2px}
 .add-sub-btn:active{opacity:.7}
 
@@ -638,6 +646,8 @@ const getProcList=()=>{try{const s=JSON.parse(localStorage.getItem('proc_list')|
 const saveProcList=arr=>localStorage.setItem('proc_list',JSON.stringify(arr));
 const getMachList=()=>{try{const s=JSON.parse(localStorage.getItem('mach_list')||'[]');return s.length?s:[...DEFAULT_MACHS]}catch(e){return[...DEFAULT_MACHS]}};
 const saveMachList=arr=>localStorage.setItem('mach_list',JSON.stringify(arr));
+const getTradeList=()=>{try{return JSON.parse(localStorage.getItem('trade_list')||'[]')}catch(e){return[]}};
+const saveTradeToList=name=>{if(!name||name.length<2)return;const l=getTradeList();if(!l.includes(name)){l.unshift(name);if(l.length>100)l.pop();localStorage.setItem('trade_list',JSON.stringify(l));}};
 
 /* --- Hanging fee: keyed per year-month, separate from day data --- */
 const skHang=(y,m)=>`hang_${y}_${m}`;
@@ -815,9 +825,15 @@ function buildSubProc(pi,si,pr){
       <span class="pick-arrow">▼</span>
     </div>
     <div class="sub-proc-fields">
-      <input class="sub-field" id="pt_${pi}_${si}" placeholder="ชื่อทางการค้า"
-        value="${pr.tradeName||''}"
-        oninput="syncSubProc(${pi},${si},'tradeName',this.value)">
+      <div class="trade-wrap">
+        <input class="sub-field" id="pt_${pi}_${si}" placeholder="ชื่อทางการค้า"
+          value="${pr.tradeName||''}"
+          autocomplete="off"
+          oninput="syncSubProc(${pi},${si},'tradeName',this.value);showTradeDrop(${pi},${si},this.value)"
+          onblur="setTimeout(()=>hideTradeDrop(${pi},${si}),180)"
+          onfocus="if(this.value)showTradeDrop(${pi},${si},this.value)">
+        <div class="trade-dropdown" id="tdrop_${pi}_${si}"></div>
+      </div>
       <input class="sub-field" id="pa_${pi}_${si}" placeholder="ปริมาณ"
         type="number" inputmode="decimal" min="0" step="any"
         value="${pr.amount||''}"
@@ -875,6 +891,40 @@ function buildSubProc(pi,si,pr){
 
 function syncSubProc(pi,si,field,val){
   if(patients[pi]&&patients[pi].procs[si]) patients[pi].procs[si][field]=val;
+}
+
+function showTradeDrop(pi,si,query){
+  const drop=document.getElementById(`tdrop_${pi}_${si}`);
+  if(!drop)return;
+  const q=(query||'').trim().toLowerCase();
+  if(!q){drop.classList.remove('open');return;}
+  const all=getTradeList();
+  const matches=all.filter(n=>n.toLowerCase().includes(q)).slice(0,8);
+  if(!matches.length){drop.classList.remove('open');return;}
+  drop.innerHTML='';
+  matches.forEach(name=>{
+    const opt=document.createElement('div');opt.className='trade-option';
+    // bold the matching part
+    const idx=name.toLowerCase().indexOf(q);
+    opt.innerHTML=idx>=0
+      ?name.slice(0,idx)+'<strong>'+name.slice(idx,idx+q.length)+'</strong>'+name.slice(idx+q.length)
+      :name;
+    opt.onmousedown=e=>{e.preventDefault();selectTrade(pi,si,name);};
+    drop.appendChild(opt);
+  });
+  drop.classList.add('open');
+}
+
+function hideTradeDrop(pi,si){
+  const drop=document.getElementById(`tdrop_${pi}_${si}`);
+  if(drop)drop.classList.remove('open');
+}
+
+function selectTrade(pi,si,name){
+  const input=document.getElementById(`pt_${pi}_${si}`);
+  if(input) input.value=name;
+  syncSubProc(pi,si,'tradeName',name);
+  hideTradeDrop(pi,si);
 }
 
 function toggleSpecialDf(pi,si,checked){
@@ -1250,6 +1300,8 @@ function saveDay(){
     sitting,procFee:totalProcFeeCalc,machFee,lump,
     patients:savedPats,machs:savedMachs,total};
   saveData(curYear,curMonth,data);
+  /* save unique trade names for autocomplete */
+  savedPats.forEach(pat=>(pat.procs||[]).forEach(pr=>{if(pr.tradeName)saveTradeToList(pr.tradeName);}));
   closeSheet();renderCalendar();
 }
 function clearDay(){if(!selectedDay)return;const data=getData(curYear,curMonth);delete data[selectedDay];saveData(curYear,curMonth,data);closeSheet();renderCalendar();}
