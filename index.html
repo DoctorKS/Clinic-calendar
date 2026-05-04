@@ -320,6 +320,32 @@ canvas.pie-canvas{max-width:100%}
 .proc-table .td-num{text-align:right;font-weight:600;color:var(--primary)}
 #reportCapture{background:#fff}
 
+/* ===== AUTH SHEET ===== */
+.auth-tab-row{display:flex;gap:8px;padding:14px 20px 0}
+.auth-tab{flex:1;padding:9px;border:none;border-radius:20px;font-size:13px;font-weight:600;font-family:'Sarabun',sans-serif;cursor:pointer;background:var(--bg);color:var(--text-muted)}
+.auth-tab.active{background:var(--primary);color:#fff}
+.auth-input{width:100%;padding:12px 14px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:16px;font-family:'Sarabun',sans-serif;color:var(--text);background:var(--bg);outline:none;-webkit-appearance:none;margin-bottom:10px}
+.auth-input:focus{border-color:var(--primary-mid);background:#fff}
+.auth-msg{font-size:13px;text-align:center;padding:6px;border-radius:8px;margin-top:4px;display:none}
+.auth-msg.ok{background:#e8f5e9;color:#2e7d32;display:block}
+.auth-msg.err{background:#fde8e8;color:var(--danger);display:block}
+.auth-user-info{background:var(--primary-light);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:12px;font-size:13px;color:var(--primary);font-weight:600}
+.sb-config-note{background:#fff8ec;border:1.5px solid #f5c97a;border-radius:var(--radius-sm);padding:10px 12px;font-size:12px;color:#7a4f00;line-height:1.6;margin-bottom:12px}
+.backup-section{padding:16px 20px;border-bottom:1px solid var(--border)}
+.backup-section:last-child{border-bottom:none}
+.backup-section-title{font-size:13px;font-weight:700;color:var(--text);margin-bottom:6px;display:flex;align-items:center;gap:6px}
+.backup-section-desc{font-size:12px;color:var(--text-muted);margin-bottom:12px;line-height:1.5}
+.backup-btn{width:100%;padding:12px;border-radius:var(--radius-sm);font-size:14px;font-weight:700;font-family:'Sarabun',sans-serif;cursor:pointer;border:none;margin-bottom:8px;display:flex;align-items:center;justify-content:center;gap:8px}
+.backup-btn:active{opacity:.8}
+.backup-btn-export{background:var(--primary);color:#fff}
+.backup-btn-import{background:var(--primary-light);color:var(--primary);border:2px solid var(--primary-mid)}
+.backup-btn-danger{background:#fde8e8;color:var(--danger)}
+.backup-info{background:var(--bg);border-radius:var(--radius-sm);padding:10px 12px;font-size:12px;color:var(--text-muted);line-height:1.6;margin-top:8px}
+.backup-info strong{color:var(--text)}
+.backup-status{text-align:center;padding:8px;font-size:13px;font-weight:600;border-radius:var(--radius-sm);margin-top:6px;display:none}
+.backup-status.ok{background:#e8f5e9;color:#2e7d32;display:block}
+.backup-status.err{background:#fde8e8;color:var(--danger);display:block}
+
 /* ===== INCOME REPORT ===== */
 .inc-clinic-section{margin-bottom:20px}
 .inc-clinic-header{display:flex;align-items:center;gap:10px;margin-bottom:10px}
@@ -346,6 +372,8 @@ canvas.pie-canvas{max-width:100%}
   <div class="header-top">
     <h1>🏥 เวรคลินิก</h1>
     <div class="hdr-btns">
+      <button class="add-clinic-btn" id="authBtn" onclick="openAuthSheet()">🔑 Login</button>
+      <button class="add-clinic-btn" onclick="openBackup()">💾 Backup</button>
       <button class="add-clinic-btn" onclick="openClinicMgr()">＋ คลินิก</button>
     </div>
   </div>
@@ -581,6 +609,77 @@ canvas.pie-canvas{max-width:100%}
  </div>
 </div>
 
+<!-- ===== AUTH SHEET ===== -->
+<div class="report-overlay" id="authOverlay" onclick="handleAuthClick(event)">
+ <div class="report-sheet" style="max-height:75vh">
+  <div class="sheet-handle"></div>
+  <div class="report-header">
+    <div><div class="report-title" id="authSheetTitle">🔑 เข้าสู่ระบบ</div></div>
+    <button class="close-btn" onclick="closeAuthSheet()">✕</button>
+  </div>
+  <div style="padding:14px 20px">
+    <!-- not configured -->
+    <div id="authNoConfig" style="display:none">
+      <div class="sb-config-note">
+        ⚙️ <strong>ยังไม่ได้ตั้งค่า Supabase</strong><br>
+        เปิดไฟล์ HTML แล้วแก้ค่า <code>SB_URL</code> และ <code>SB_KEY</code><br>
+        ที่บรรทัด const SB_URL / SB_KEY ด้านบนของ script
+      </div>
+    </div>
+    <!-- logged in -->
+    <div id="authLoggedIn" style="display:none">
+      <div class="auth-user-info" id="authUserInfo"></div>
+      <button class="btn btn-primary" style="width:100%;margin-bottom:8px" onclick="pullFromSupabase().then(closeAuthSheet)">🔄 Sync ข้อมูลจาก Cloud</button>
+      <button class="backup-btn backup-btn-danger" onclick="sbSignOut();closeAuthSheet()">ออกจากระบบ</button>
+    </div>
+    <!-- login/signup form -->
+    <div id="authForm">
+      <div class="auth-tab-row" style="padding:0 0 14px">
+        <button class="auth-tab active" id="tabLogin" onclick="switchAuthTab('login')">เข้าสู่ระบบ</button>
+        <button class="auth-tab" id="tabSignup" onclick="switchAuthTab('signup')">สมัครใหม่</button>
+      </div>
+      <input class="auth-input" id="authEmail" type="email" placeholder="Email" inputmode="email">
+      <input class="auth-input" id="authPassword" type="password" placeholder="Password (min 6 ตัว)">
+      <button class="btn btn-primary" style="width:100%" id="authSubmitBtn" onclick="submitAuth()">เข้าสู่ระบบ</button>
+      <div class="auth-msg" id="authMsg"></div>
+    </div>
+  </div>
+ </div>
+</div>
+
+<!-- ===== BACKUP SHEET ===== -->
+<div class="report-overlay" id="backupOverlay" onclick="handleBackupClick(event)">
+ <div class="report-sheet" style="max-height:80vh">
+  <div class="sheet-handle"></div>
+  <div class="report-header">
+    <div><div class="report-title">💾 Backup &amp; Restore</div></div>
+    <button class="close-btn" onclick="closeBackup()">✕</button>
+  </div>
+
+  <div class="backup-section">
+    <div class="backup-section-title">📤 Export — บันทึกข้อมูลลงเครื่อง</div>
+    <div class="backup-section-desc">ดาวน์โหลดข้อมูลทั้งหมดเป็นไฟล์ .json เก็บไว้ใน Files / iCloud / Google Drive</div>
+    <button class="backup-btn backup-btn-export" onclick="exportData()">⬇️ Export เป็น JSON</button>
+    <div class="backup-info">
+      <strong>ครอบคลุม:</strong> ข้อมูลทุกเดือน, คลินิก, รายการหัตถการ/เครื่อง, ชื่อทางการค้า, ค่าแขวน<br>
+      <strong>แนะนำ:</strong> Export ทุกอาทิตย์หรือหลังบันทึกข้อมูลหลายวัน
+    </div>
+  </div>
+
+  <div class="backup-section">
+    <div class="backup-section-title">📥 Import — กู้คืนข้อมูล</div>
+    <div class="backup-section-desc">เลือกไฟล์ .json ที่ Export ไว้เพื่อกู้คืนข้อมูล</div>
+    <button class="backup-btn backup-btn-import" onclick="document.getElementById('importFile').click()">⬆️ Import จาก JSON</button>
+    <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)">
+    <div class="backup-info" style="background:#fff8ec;border:1px solid #f5c97a">
+      ⚠️ <strong>Import จะ overwrite ข้อมูลปัจจุบัน</strong> แนะนำ Export ก่อน Import เสมอ
+    </div>
+    <div class="backup-status" id="importStatus"></div>
+  </div>
+
+ </div>
+</div>
+
 <!-- ===== INCOME REPORT SHEET ===== -->
 <div class="report-overlay" id="incomeReportOverlay" onclick="handleIncomeReportClick(event)">
  <div class="report-sheet">
@@ -636,23 +735,216 @@ let today=new Date(), curYear=today.getFullYear(), curMonth=today.getMonth(), se
 let selColor=PALETTE[3], editingClinicId=null, reportChartMode='proc';
 let patients=[], machRows=[];
 
-/* --- Storage helpers --- */
+/* =====================================================
+   SUPABASE CONFIG — ใส่ค่าจาก Project Settings > API
+   ===================================================== */
+const SB_URL = '';   // เช่น https://xxxxxxxxxxxx.supabase.co
+const SB_KEY = '';   // anon public key
+
+/* =====================================================
+   SUPABASE HELPERS — thin fetch wrapper
+   ===================================================== */
+let _sbSession = null; // { access_token, user }
+
+const sbReady = () => SB_URL && SB_KEY && _sbSession;
+
+async function sbFetch(path, opts={}){
+  if(!sbReady()) return null;
+  const res = await fetch(SB_URL + path, {
+    ...opts,
+    headers:{
+      'apikey': SB_KEY,
+      'Authorization': 'Bearer ' + _sbSession.access_token,
+      'Content-Type': 'application/json',
+      'Prefer': opts.prefer||'',
+      ...(opts.headers||{})
+    }
+  });
+  if(!res.ok) return null;
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
+
+async function sbUpsert(table, row){
+  return sbFetch('/rest/v1/'+table, {
+    method:'POST', prefer:'resolution=merge-duplicates,return=minimal',
+    body: JSON.stringify({...row, user_id: _sbSession.user.id})
+  });
+}
+
+async function sbSelect(table, filter=''){
+  return sbFetch('/rest/v1/'+table+'?'+filter+'&select=*');
+}
+
+async function sbDelete(table, filter){
+  return sbFetch('/rest/v1/'+table+'?'+filter, {method:'DELETE'});
+}
+
+/* =====================================================
+   AUTH
+   ===================================================== */
+async function sbSignUp(email, password){
+  const res = await fetch(SB_URL+'/auth/v1/signup', {
+    method:'POST', headers:{'apikey':SB_KEY,'Content-Type':'application/json'},
+    body: JSON.stringify({email, password})
+  });
+  return res.json();
+}
+async function sbSignIn(email, password){
+  const res = await fetch(SB_URL+'/auth/v1/token?grant_type=password', {
+    method:'POST', headers:{'apikey':SB_KEY,'Content-Type':'application/json'},
+    body: JSON.stringify({email, password})
+  });
+  const data = await res.json();
+  if(data.access_token){
+    _sbSession = {access_token: data.access_token, user: data.user};
+    localStorage.setItem('sb_session', JSON.stringify(_sbSession));
+    return {ok:true};
+  }
+  return {ok:false, error: data.error_description||data.msg||'Login failed'};
+}
+function sbSignOut(){
+  _sbSession = null;
+  localStorage.removeItem('sb_session');
+  updateAuthUI();
+}
+function sbLoadSession(){
+  try{const s=localStorage.getItem('sb_session');if(s)_sbSession=JSON.parse(s);}catch(e){}
+}
+
+/* =====================================================
+   STORAGE HELPERS — localStorage + Supabase sync
+   localStorage = instant read (cache)
+   Supabase = background write (durable)
+   ===================================================== */
 const sk=(y,m)=>`clinic_${y}_${m}`;
 const getData=(y,m)=>{try{return JSON.parse(localStorage.getItem(sk(y,m))||'{}')}catch(e){return{}}};
-const saveData=(y,m,d)=>localStorage.setItem(sk(y,m),JSON.stringify(d));
-const getClinics=()=>{try{return JSON.parse(localStorage.getItem('clinic_presets')||'[]')}catch(e){return[]}};
-const saveClinics=arr=>localStorage.setItem('clinic_presets',JSON.stringify(arr));
-const getProcList=()=>{try{const s=JSON.parse(localStorage.getItem('proc_list')||'[]');return s.length?s:[...DEFAULT_PROCS]}catch(e){return[...DEFAULT_PROCS]}};
-const saveProcList=arr=>localStorage.setItem('proc_list',JSON.stringify(arr));
-const getMachList=()=>{try{const s=JSON.parse(localStorage.getItem('mach_list')||'[]');return s.length?s:[...DEFAULT_MACHS]}catch(e){return[...DEFAULT_MACHS]}};
-const saveMachList=arr=>localStorage.setItem('mach_list',JSON.stringify(arr));
-const getTradeList=()=>{try{return JSON.parse(localStorage.getItem('trade_list')||'[]')}catch(e){return[]}};
-const saveTradeToList=name=>{if(!name||name.length<2)return;const l=getTradeList();if(!l.includes(name)){l.unshift(name);if(l.length>100)l.pop();localStorage.setItem('trade_list',JSON.stringify(l));}};
 
-/* --- Hanging fee: keyed per year-month, separate from day data --- */
+async function saveData(y,m,d){
+  localStorage.setItem(sk(y,m), JSON.stringify(d));
+  if(!sbReady()) return;
+  // sync each day entry to Supabase shifts table
+  const promises = Object.entries(d).map(([day, dd])=>{
+    if(!dd||!dd.total) return;
+    const dateStr = `${y}-${String(m+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    return sbUpsert('shifts',{
+      shift_date: dateStr, clinic_id: dd.clinicId||null,
+      condition: dd.condition||'', hour_rate: dd.hourRate||0, hours: dd.hours||0,
+      proc_pct: dd.procPct||0, mach_pct: dd.machPct||0,
+      sitting: dd.sitting||0, proc_fee: dd.procFee||0, mach_fee: dd.machFee||0,
+      lump: dd.lump||0, total: dd.total||0,
+      patients: dd.patients||[], machs: dd.machs||[]
+    });
+  });
+  await Promise.allSettled(promises.filter(Boolean));
+}
+
+const getClinics=()=>{try{return JSON.parse(localStorage.getItem('clinic_presets')||'[]')}catch(e){return[]}};
+async function saveClinics(arr){
+  localStorage.setItem('clinic_presets', JSON.stringify(arr));
+  if(!sbReady()) return;
+  await Promise.allSettled(arr.map(cl=>sbUpsert('clinics',{
+    id:cl.id, name:cl.name, abbr:cl.abbr, color:cl.color,
+    hour_rate:cl.hourRate||'', hours:cl.hours||'', lump:cl.lump||'',
+    proc_pct:cl.procPct||'', mach_pct:cl.machPct||'', condition:cl.condition||''
+  })));
+}
+
+const getProcList=()=>{try{const s=JSON.parse(localStorage.getItem('proc_list')||'[]');return s.length?s:[...DEFAULT_PROCS]}catch(e){return[...DEFAULT_PROCS]}};
+async function saveProcList(arr){
+  localStorage.setItem('proc_list',JSON.stringify(arr));
+  if(sbReady()) sbUpsert('user_lists',{list_name:'proc_list',items:arr});
+}
+
+const getMachList=()=>{try{const s=JSON.parse(localStorage.getItem('mach_list')||'[]');return s.length?s:[...DEFAULT_MACHS]}catch(e){return[...DEFAULT_MACHS]}};
+async function saveMachList(arr){
+  localStorage.setItem('mach_list',JSON.stringify(arr));
+  if(sbReady()) sbUpsert('user_lists',{list_name:'mach_list',items:arr});
+}
+
+const getTradeList=()=>{try{return JSON.parse(localStorage.getItem('trade_list')||'[]')}catch(e){return[]}};
+const saveTradeToList=name=>{
+  if(!name||name.length<2)return;
+  const l=getTradeList();
+  if(!l.includes(name)){l.unshift(name);if(l.length>100)l.pop();localStorage.setItem('trade_list',JSON.stringify(l));}
+  if(sbReady()) sbUpsert('user_lists',{list_name:'trade_list',items:l});
+};
+
+/* --- Hanging fee --- */
 const skHang=(y,m)=>`hang_${y}_${m}`;
 const getHanging=(y,m)=>{const v=localStorage.getItem(skHang(y,m));return v!==null?parseFloat(v)||0:0;};
-const saveHanging=(y,m,val)=>localStorage.setItem(skHang(y,m),val);
+async function saveHanging(y,m,val){
+  localStorage.setItem(skHang(y,m),val);
+  if(sbReady()) sbUpsert('hanging_fees',{year_month:`${y}-${m}`, amount:parseFloat(val)||0});
+}
+
+/* =====================================================
+   PULL FROM SUPABASE — sync cloud → localStorage
+   called once after login
+   ===================================================== */
+async function pullFromSupabase(){
+  if(!sbReady()) return;
+  showSyncBanner('🔄 กำลัง sync ข้อมูลจาก cloud...');
+
+  // clinics
+  const cls = await sbSelect('clinics','order=created_at.asc');
+  if(cls?.length){
+    const mapped = cls.map(c=>({id:c.id,name:c.name,abbr:c.abbr,color:c.color,
+      hourRate:c.hour_rate,hours:c.hours,lump:c.lump,
+      procPct:c.proc_pct,machPct:c.mach_pct,condition:c.condition||''}));
+    localStorage.setItem('clinic_presets', JSON.stringify(mapped));
+  }
+
+  // shifts
+  const shifts = await sbSelect('shifts','order=shift_date.asc');
+  if(shifts?.length){
+    const byYM = {};
+    shifts.forEach(s=>{
+      const d = new Date(s.shift_date);
+      const y = d.getFullYear(), m = d.getMonth(), day = d.getDate();
+      const key = sk(y,m);
+      if(!byYM[key]) byYM[key]={};
+      byYM[key][day]={
+        clinicId:s.clinic_id||'', condition:s.condition||'',
+        hourRate:s.hour_rate, hours:s.hours,
+        procPct:s.proc_pct, machPct:s.mach_pct,
+        sitting:s.sitting, procFee:s.proc_fee, machFee:s.mach_fee,
+        lump:s.lump, total:s.total,
+        patients:s.patients||[], machs:s.machs||[]
+      };
+    });
+    Object.entries(byYM).forEach(([key,val])=>localStorage.setItem(key,JSON.stringify(val)));
+  }
+
+  // hanging fees
+  const hangs = await sbSelect('hanging_fees');
+  if(hangs?.length){
+    hangs.forEach(h=>{
+      const[y,m]=h.year_month.split('-');
+      localStorage.setItem(skHang(+y,+m), h.amount||'');
+    });
+  }
+
+  // user lists
+  const lists = await sbSelect('user_lists');
+  if(lists?.length){
+    lists.forEach(l=>{
+      localStorage.setItem(l.list_name, JSON.stringify(l.items||[]));
+    });
+  }
+
+  hideSyncBanner();
+  renderCalendar();
+}
+
+function showSyncBanner(msg){
+  let b=document.getElementById('syncBanner');
+  if(!b){b=document.createElement('div');b.id='syncBanner';
+    b.style.cssText='position:fixed;top:0;left:0;right:0;background:#1a6b5a;color:#fff;text-align:center;padding:8px;font-size:13px;font-weight:600;z-index:9999;font-family:Sarabun,sans-serif';
+    document.body.appendChild(b);}
+  b.textContent=msg;b.style.display='block';
+}
+function hideSyncBanner(){const b=document.getElementById('syncBanner');if(b)b.style.display='none';}
 
 const fmt=n=>(!n&&n!==0)?'—':'฿'+Math.round(n).toLocaleString('th-TH');
 const fmtC=n=>n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(0)+'k':Math.round(n).toLocaleString('th-TH');
@@ -694,9 +986,9 @@ function updateSummary(){
   document.getElementById('hangingGrandTotal').textContent='฿'+Math.round(grand).toLocaleString('th-TH');
 }
 
-function onHangingInput(){
+async function onHangingInput(){
   const val=parseFloat(document.getElementById('hangingInput').value)||0;
-  saveHanging(curYear,curMonth,val||'');
+  await saveHanging(curYear,curMonth,val||'');
   updateSummary();
 }
 
@@ -1248,7 +1540,7 @@ function calcPreview(){
   document.getElementById('rTotal').textContent=fmt(total);
 }
 
-function saveDay(){
+async function saveDay(){
   if(!selectedDay)return;
   flushAll();
   const hourRate=parseFloat(document.getElementById('inHourRate').value)||0;
@@ -1299,12 +1591,20 @@ function saveDay(){
   data[selectedDay]={clinicId,condition,hourRate,hours,procPct,machPct,
     sitting,procFee:totalProcFeeCalc,machFee,lump,
     patients:savedPats,machs:savedMachs,total};
-  saveData(curYear,curMonth,data);
+  await saveData(curYear,curMonth,data);
   /* save unique trade names for autocomplete */
   savedPats.forEach(pat=>(pat.procs||[]).forEach(pr=>{if(pr.tradeName)saveTradeToList(pr.tradeName);}));
   closeSheet();renderCalendar();
 }
-function clearDay(){if(!selectedDay)return;const data=getData(curYear,curMonth);delete data[selectedDay];saveData(curYear,curMonth,data);closeSheet();renderCalendar();}
+async function clearDay(){
+  if(!selectedDay)return;
+  const data=getData(curYear,curMonth);
+  const dateStr=`${curYear}-${String(curMonth+1).padStart(2,'0')}-${String(selectedDay).padStart(2,'0')}`;
+  delete data[selectedDay];
+  await saveData(curYear,curMonth,data);
+  if(sbReady()) sbDelete('shifts','shift_date=eq.'+dateStr+'&user_id=eq.'+_sbSession.user.id);
+  closeSheet();renderCalendar();
+}
 
 /* ===== CLINIC MANAGER ===== */
 function openClinicMgr(){editingClinicId=null;switchMgrTab('list');renderClinicList();document.getElementById('mgrOverlay').classList.add('open');document.body.style.overflow='hidden';}
@@ -1369,16 +1669,21 @@ function renderColorGrid(){
   const grid=document.getElementById('colorGrid');grid.innerHTML='';
   PALETTE.forEach(color=>{const sw=document.createElement('div');sw.className='color-swatch'+(color===selColor?' selected':'');sw.style.background=color;sw.onclick=()=>{selColor=color;renderColorGrid();};grid.appendChild(sw);});
 }
-function saveClinic(){
+async function saveClinic(){
   const name=document.getElementById('cName').value.trim();if(!name){alert('กรุณากรอกชื่อคลินิก');return;}
   const abbr=document.getElementById('cAbbr').value.trim().toUpperCase()||name.replace(/\s+/g,'').slice(0,3).toUpperCase();
   const fields={name,abbr,color:selColor,hourRate:document.getElementById('cHourRate').value||'',hours:document.getElementById('cHours').value||'',lump:document.getElementById('cLump').value||'',procPct:document.getElementById('cProcPct').value||'',machPct:document.getElementById('cMachPct').value||'',condition:document.getElementById('cCondition').value||''};
   const clinics=getClinics();
   if(editingClinicId){const idx=clinics.findIndex(c=>c.id===editingClinicId);if(idx>=0)clinics[idx]={...clinics[idx],...fields};editingClinicId=null;}
   else{clinics.push({id:'cl_'+Date.now(),...fields});}
-  saveClinics(clinics);switchMgrTab('list');renderClinicList();
+  await saveClinics(clinics);switchMgrTab('list');renderClinicList();
 }
-function deleteClinic(id,e){e.stopPropagation();if(!confirm('ลบคลินิกนี้?'))return;saveClinics(getClinics().filter(c=>c.id!==id));renderClinicList();}
+async function deleteClinic(id,e){e.stopPropagation();if(!confirm('ลบคลินิกนี้?'))return;
+  const newList=getClinics().filter(c=>c.id!==id);
+  await saveClinics(newList);
+  if(sbReady()) sbDelete('clinics','id=eq.'+id);
+  renderClinicList();
+}
 
 /* ===== REPORT ===== */
 let rpYear=today.getFullYear(), rpSelectedMonths=new Set();
@@ -1561,7 +1866,67 @@ async function saveScreenshot(){
 }
 
 renderColorGrid();
+sbLoadSession();
 renderCalendar();
+updateAuthUI();
+if(_sbSession) pullFromSupabase();
+
+/* ===== AUTH UI ===== */
+function openAuthSheet(){
+  updateAuthUI();
+  document.getElementById('authOverlay').classList.add('open');
+  document.body.style.overflow='hidden';
+}
+function closeAuthSheet(){document.getElementById('authOverlay').classList.remove('open');document.body.style.overflow='';}
+function handleAuthClick(e){if(e.target===document.getElementById('authOverlay'))closeAuthSheet();}
+
+let _authMode='login';
+function switchAuthTab(mode){
+  _authMode=mode;
+  document.getElementById('tabLogin').classList.toggle('active',mode==='login');
+  document.getElementById('tabSignup').classList.toggle('active',mode==='signup');
+  document.getElementById('authSubmitBtn').textContent=mode==='login'?'เข้าสู่ระบบ':'สมัครสมาชิก';
+  document.getElementById('authMsg').className='auth-msg';
+}
+
+function updateAuthUI(){
+  const hasConfig=!!(SB_URL&&SB_KEY);
+  document.getElementById('authNoConfig').style.display=hasConfig?'none':'block';
+  document.getElementById('authForm').style.display=(hasConfig&&!_sbSession)?'block':'none';
+  document.getElementById('authLoggedIn').style.display=_sbSession?'block':'none';
+  const btn=document.getElementById('authBtn');
+  if(_sbSession){
+    document.getElementById('authUserInfo').textContent='✅ เข้าสู่ระบบแล้ว: '+(_sbSession.user?.email||'');
+    document.getElementById('authSheetTitle').textContent='☁️ Cloud Sync';
+    btn.textContent='☁️ Cloud';btn.style.background='rgba(255,255,255,.32)';
+  } else {
+    document.getElementById('authSheetTitle').textContent='🔑 เข้าสู่ระบบ';
+    btn.textContent='🔑 Login';btn.style.background='';
+  }
+}
+
+async function submitAuth(){
+  const email=document.getElementById('authEmail').value.trim();
+  const pass=document.getElementById('authPassword').value;
+  const msg=document.getElementById('authMsg');
+  if(!email||!pass){msg.textContent='กรุณากรอก email และ password';msg.className='auth-msg err';return;}
+  document.getElementById('authSubmitBtn').textContent='กำลังดำเนินการ...';
+  let result;
+  if(_authMode==='signup'){
+    result=await sbSignUp(email,pass);
+    if(result.id||result.user){msg.textContent='✅ สมัครสำเร็จ! ตรวจสอบ email เพื่อยืนยัน';msg.className='auth-msg ok';}
+    else{msg.textContent='❌ '+(result.msg||result.error_description||'สมัครไม่สำเร็จ');msg.className='auth-msg err';}
+  } else {
+    result=await sbSignIn(email,pass);
+    if(result.ok){
+      updateAuthUI();msg.textContent='✅ เข้าสู่ระบบสำเร็จ';msg.className='auth-msg ok';
+      setTimeout(()=>{closeAuthSheet();pullFromSupabase();},800);
+    } else {
+      msg.textContent='❌ '+result.error;msg.className='auth-msg err';
+    }
+  }
+  document.getElementById('authSubmitBtn').textContent=_authMode==='login'?'เข้าสู่ระบบ':'สมัครสมาชิก';
+}
 
 /* ===== INCOME REPORT ===== */
 let incYear=today.getFullYear(), incSelectedMonths=new Set();
@@ -1674,6 +2039,65 @@ async function saveIncomeScreenshot(){
   const el=document.getElementById('incReportCapture');
   try{const canvas=await html2canvas(el,{scale:2,useCORS:true,backgroundColor:'#ffffff',scrollX:0,scrollY:0,windowWidth:el.scrollWidth,windowHeight:el.scrollHeight});const link=document.createElement('a');link.download='สรุปค่าเวร.png';link.href=canvas.toDataURL('image/png');link.click();}
   catch(e){alert('กด ค้างที่รูปแล้วเลือก "บันทึกรูปภาพ" ครับ/ค่ะ');}
+}
+
+/* ===== BACKUP & RESTORE ===== */
+function openBackup(){
+  document.getElementById('importStatus').className='backup-status';
+  document.getElementById('importStatus').textContent='';
+  document.getElementById('backupOverlay').classList.add('open');
+  document.body.style.overflow='hidden';
+}
+function closeBackup(){document.getElementById('backupOverlay').classList.remove('open');document.body.style.overflow='';}
+function handleBackupClick(e){if(e.target===document.getElementById('backupOverlay'))closeBackup();}
+
+function exportData(){
+  /* collect ALL localStorage keys belonging to this app */
+  const snapshot={_version:1,_exportedAt:new Date().toISOString(),data:{}};
+  for(let i=0;i<localStorage.length;i++){
+    const k=localStorage.key(i);
+    if(k&&(k.startsWith('clinic_')||k.startsWith('hang_')||
+       ['clinic_presets','proc_list','mach_list','trade_list'].includes(k))){
+      try{snapshot.data[k]=JSON.parse(localStorage.getItem(k));}
+      catch(e){snapshot.data[k]=localStorage.getItem(k);}
+    }
+  }
+  const blob=new Blob([JSON.stringify(snapshot,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  const d=new Date();
+  a.download=`เวรคลินิก_backup_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}.json`;
+  a.href=url;a.click();
+  URL.revokeObjectURL(url);
+}
+
+function importData(event){
+  const file=event.target.files[0];
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      const snapshot=JSON.parse(e.target.result);
+      if(!snapshot.data||typeof snapshot.data!=='object')throw new Error('รูปแบบไฟล์ไม่ถูกต้อง');
+      const keys=Object.keys(snapshot.data);
+      if(!keys.length)throw new Error('ไม่พบข้อมูลในไฟล์');
+      /* write all keys back */
+      keys.forEach(k=>{
+        const v=snapshot.data[k];
+        localStorage.setItem(k,typeof v==='string'?v:JSON.stringify(v));
+      });
+      const status=document.getElementById('importStatus');
+      status.textContent=`✅ กู้คืนสำเร็จ ${keys.length} รายการ — กำลัง reload...`;
+      status.className='backup-status ok';
+      setTimeout(()=>location.reload(),1200);
+    }catch(err){
+      const status=document.getElementById('importStatus');
+      status.textContent='❌ ไฟล์ไม่ถูกต้อง: '+err.message;
+      status.className='backup-status err';
+    }
+  };
+  reader.readAsText(file);
+  event.target.value='';
 }
 
 /* measure header height so hanging-bar sticks right below it */
