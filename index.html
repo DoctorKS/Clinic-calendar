@@ -5,9 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<!-- ชื่อที่แสดงใต้ icon บน home screen -->
 <meta name="apple-mobile-web-app-title" content="จัดการเวรคลินิก">
-<!-- icon ที่แสดงบน home screen — ใส่ path ของไฟล์รูปใน repo -->
 <link rel="apple-touch-icon" href="Clinic-calendar.png">
 <title>เวรคลินิก</title>
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -323,17 +321,6 @@ canvas.pie-canvas{max-width:100%}
 .proc-table .td-num{text-align:right;font-weight:600;color:var(--primary)}
 #reportCapture{background:#fff}
 
-/* ===== AUTH SHEET ===== */
-.auth-tab-row{display:flex;gap:8px;padding:14px 20px 0}
-.auth-tab{flex:1;padding:9px;border:none;border-radius:20px;font-size:13px;font-weight:600;font-family:'Sarabun',sans-serif;cursor:pointer;background:var(--bg);color:var(--text-muted)}
-.auth-tab.active{background:var(--primary);color:#fff}
-.auth-input{width:100%;padding:12px 14px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:16px;font-family:'Sarabun',sans-serif;color:var(--text);background:var(--bg);outline:none;-webkit-appearance:none;margin-bottom:10px}
-.auth-input:focus{border-color:var(--primary-mid);background:#fff}
-.auth-msg{font-size:13px;text-align:center;padding:6px;border-radius:8px;margin-top:4px;display:none}
-.auth-msg.ok{background:#e8f5e9;color:#2e7d32;display:block}
-.auth-msg.err{background:#fde8e8;color:var(--danger);display:block}
-.auth-user-info{background:var(--primary-light);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:12px;font-size:13px;color:var(--primary);font-weight:600}
-.sb-config-note{background:#fff8ec;border:1.5px solid #f5c97a;border-radius:var(--radius-sm);padding:10px 12px;font-size:12px;color:#7a4f00;line-height:1.6;margin-bottom:12px}
 .backup-section{padding:16px 20px;border-bottom:1px solid var(--border)}
 .backup-section:last-child{border-bottom:none}
 .backup-section-title{font-size:13px;font-weight:700;color:var(--text);margin-bottom:6px;display:flex;align-items:center;gap:6px}
@@ -375,7 +362,6 @@ canvas.pie-canvas{max-width:100%}
   <div class="header-top">
     <h1>🏥 เวรคลินิก</h1>
     <div class="hdr-btns">
-      <button class="add-clinic-btn" id="authBtn" onclick="openAuthSheet()">🔑 Login</button>
       <button class="add-clinic-btn" onclick="openBackup()">💾 Backup</button>
       <button class="add-clinic-btn" onclick="openClinicMgr()">＋ คลินิก</button>
     </div>
@@ -612,44 +598,6 @@ canvas.pie-canvas{max-width:100%}
  </div>
 </div>
 
-<!-- ===== AUTH SHEET ===== -->
-<div class="report-overlay" id="authOverlay" onclick="handleAuthClick(event)">
- <div class="report-sheet" style="max-height:75vh">
-  <div class="sheet-handle"></div>
-  <div class="report-header">
-    <div><div class="report-title" id="authSheetTitle">🔑 เข้าสู่ระบบ</div></div>
-    <button class="close-btn" onclick="closeAuthSheet()">✕</button>
-  </div>
-  <div style="padding:14px 20px">
-    <!-- not configured -->
-    <div id="authNoConfig" style="display:none">
-      <div class="sb-config-note">
-        ⚙️ <strong>ยังไม่ได้ตั้งค่า Supabase</strong><br>
-        เปิดไฟล์ HTML แล้วแก้ค่า <code>SB_URL</code> และ <code>SB_KEY</code><br>
-        ที่บรรทัด const SB_URL / SB_KEY ด้านบนของ script
-      </div>
-    </div>
-    <!-- logged in -->
-    <div id="authLoggedIn" style="display:none">
-      <div class="auth-user-info" id="authUserInfo"></div>
-      <button class="btn btn-primary" style="width:100%;margin-bottom:8px" onclick="pullFromSupabase().then(closeAuthSheet)">🔄 Sync ข้อมูลจาก Cloud</button>
-      <button class="backup-btn backup-btn-danger" onclick="sbSignOut();closeAuthSheet()">ออกจากระบบ</button>
-    </div>
-    <!-- login/signup form -->
-    <div id="authForm">
-      <div class="auth-tab-row" style="padding:0 0 14px">
-        <button class="auth-tab active" id="tabLogin" onclick="switchAuthTab('login')">เข้าสู่ระบบ</button>
-        <button class="auth-tab" id="tabSignup" onclick="switchAuthTab('signup')">สมัครใหม่</button>
-      </div>
-      <input class="auth-input" id="authEmail" type="email" placeholder="Email" inputmode="email">
-      <input class="auth-input" id="authPassword" type="password" placeholder="Password (min 6 ตัว)">
-      <button class="btn btn-primary" style="width:100%" id="authSubmitBtn" onclick="submitAuth()">เข้าสู่ระบบ</button>
-      <div class="auth-msg" id="authMsg"></div>
-    </div>
-  </div>
- </div>
-</div>
-
 <!-- ===== BACKUP SHEET ===== -->
 <div class="report-overlay" id="backupOverlay" onclick="handleBackupClick(event)">
  <div class="report-sheet" style="max-height:80vh">
@@ -741,8 +689,8 @@ let patients=[], machRows=[];
 /* =====================================================
    SUPABASE CONFIG — ใส่ค่าจาก Project Settings > API
    ===================================================== */
-const SB_URL = '';   // เช่น https://xxxxxxxxxxxx.supabase.co
-const SB_KEY = '';   // anon public key
+const SB_URL = 'https://oumsfyjefpwzecgjckii.supabase.co/';   // เช่น https://xxxxxxxxxxxx.supabase.co
+const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im91bXNmeWplZnB3emVjZ2pja2lpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc4ODAxNjIsImV4cCI6MjA5MzQ1NjE2Mn0.epSLX2etMDLaGQ2NU3a6IV6RwXg89zfN0RoEtImg9pI';   // anon public key
 
 /* =====================================================
    SUPABASE HELPERS — thin fetch wrapper
@@ -783,34 +731,6 @@ async function sbDelete(table, filter){
   return sbFetch('/rest/v1/'+table+'?'+filter, {method:'DELETE'});
 }
 
-/* =====================================================
-   AUTH
-   ===================================================== */
-async function sbSignUp(email, password){
-  const res = await fetch(SB_URL+'/auth/v1/signup', {
-    method:'POST', headers:{'apikey':SB_KEY,'Content-Type':'application/json'},
-    body: JSON.stringify({email, password})
-  });
-  return res.json();
-}
-async function sbSignIn(email, password){
-  const res = await fetch(SB_URL+'/auth/v1/token?grant_type=password', {
-    method:'POST', headers:{'apikey':SB_KEY,'Content-Type':'application/json'},
-    body: JSON.stringify({email, password})
-  });
-  const data = await res.json();
-  if(data.access_token){
-    _sbSession = {access_token: data.access_token, user: data.user};
-    localStorage.setItem('sb_session', JSON.stringify(_sbSession));
-    return {ok:true};
-  }
-  return {ok:false, error: data.error_description||data.msg||'Login failed'};
-}
-function sbSignOut(){
-  _sbSession = null;
-  localStorage.removeItem('sb_session');
-  updateAuthUI();
-}
 function sbLoadSession(){
   try{const s=localStorage.getItem('sb_session');if(s)_sbSession=JSON.parse(s);}catch(e){}
 }
@@ -1871,65 +1791,7 @@ async function saveScreenshot(){
 renderColorGrid();
 sbLoadSession();
 renderCalendar();
-updateAuthUI();
 if(_sbSession) pullFromSupabase();
-
-/* ===== AUTH UI ===== */
-function openAuthSheet(){
-  updateAuthUI();
-  document.getElementById('authOverlay').classList.add('open');
-  document.body.style.overflow='hidden';
-}
-function closeAuthSheet(){document.getElementById('authOverlay').classList.remove('open');document.body.style.overflow='';}
-function handleAuthClick(e){if(e.target===document.getElementById('authOverlay'))closeAuthSheet();}
-
-let _authMode='login';
-function switchAuthTab(mode){
-  _authMode=mode;
-  document.getElementById('tabLogin').classList.toggle('active',mode==='login');
-  document.getElementById('tabSignup').classList.toggle('active',mode==='signup');
-  document.getElementById('authSubmitBtn').textContent=mode==='login'?'เข้าสู่ระบบ':'สมัครสมาชิก';
-  document.getElementById('authMsg').className='auth-msg';
-}
-
-function updateAuthUI(){
-  const hasConfig=!!(SB_URL&&SB_KEY);
-  document.getElementById('authNoConfig').style.display=hasConfig?'none':'block';
-  document.getElementById('authForm').style.display=(hasConfig&&!_sbSession)?'block':'none';
-  document.getElementById('authLoggedIn').style.display=_sbSession?'block':'none';
-  const btn=document.getElementById('authBtn');
-  if(_sbSession){
-    document.getElementById('authUserInfo').textContent='✅ เข้าสู่ระบบแล้ว: '+(_sbSession.user?.email||'');
-    document.getElementById('authSheetTitle').textContent='☁️ Cloud Sync';
-    btn.textContent='☁️ Cloud';btn.style.background='rgba(255,255,255,.32)';
-  } else {
-    document.getElementById('authSheetTitle').textContent='🔑 เข้าสู่ระบบ';
-    btn.textContent='🔑 Login';btn.style.background='';
-  }
-}
-
-async function submitAuth(){
-  const email=document.getElementById('authEmail').value.trim();
-  const pass=document.getElementById('authPassword').value;
-  const msg=document.getElementById('authMsg');
-  if(!email||!pass){msg.textContent='กรุณากรอก email และ password';msg.className='auth-msg err';return;}
-  document.getElementById('authSubmitBtn').textContent='กำลังดำเนินการ...';
-  let result;
-  if(_authMode==='signup'){
-    result=await sbSignUp(email,pass);
-    if(result.id||result.user){msg.textContent='✅ สมัครสำเร็จ! ตรวจสอบ email เพื่อยืนยัน';msg.className='auth-msg ok';}
-    else{msg.textContent='❌ '+(result.msg||result.error_description||'สมัครไม่สำเร็จ');msg.className='auth-msg err';}
-  } else {
-    result=await sbSignIn(email,pass);
-    if(result.ok){
-      updateAuthUI();msg.textContent='✅ เข้าสู่ระบบสำเร็จ';msg.className='auth-msg ok';
-      setTimeout(()=>{closeAuthSheet();pullFromSupabase();},800);
-    } else {
-      msg.textContent='❌ '+result.error;msg.className='auth-msg err';
-    }
-  }
-  document.getElementById('authSubmitBtn').textContent=_authMode==='login'?'เข้าสู่ระบบ':'สมัครสมาชิก';
-}
 
 /* ===== INCOME REPORT ===== */
 let incYear=today.getFullYear(), incSelectedMonths=new Set();
