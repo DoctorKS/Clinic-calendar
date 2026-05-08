@@ -349,6 +349,11 @@ canvas.pie-canvas{max-width:100%}
 .inc-table td.muted{color:var(--text-muted);font-size:12px}
 .inc-table tr.total-row td{font-weight:700;color:var(--primary);background:var(--primary-light);border-top:2px solid var(--border)}
 .inc-table tr:last-child td{border-bottom:none}
+/* Paid checkbox */
+.paid-chk{width:16px;height:16px;accent-color:var(--primary);cursor:pointer;vertical-align:middle}
+.inc-table tr.paid-row td{background:#f0faf6;color:var(--text-muted)}
+.inc-table tr.paid-row td.r{color:var(--primary-mid)}
+.paid-badge{font-size:9px;font-weight:800;background:#e8f5e9;color:#2e7d32;border-radius:6px;padding:1px 5px;margin-left:4px;vertical-align:middle}
 .inc-grand{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:var(--primary);color:#fff;border-radius:var(--radius-sm);margin-top:14px}
 .inc-grand-label{font-size:14px;font-weight:600;opacity:.85}
 .inc-grand-val{font-size:22px;font-weight:700}
@@ -808,8 +813,13 @@ async function saveHanging(y,m,val){
   if(sbReady()) sbUpsert('hanging_fees',{year_month:`${y}-${m}`, amount:parseFloat(val)||0});
 }
 
-/* =====================================================
-   PULL FROM SUPABASE — sync cloud → localStorage
+/* --- Paid status --- */
+const getPaidKey=(dateStr,field)=>`paid_${dateStr}_${field}`;
+const isPaid=(dateStr,field)=>localStorage.getItem(getPaidKey(dateStr,field))==='1';
+const togglePaid=(dateStr,field,checked)=>{
+  if(checked) localStorage.setItem(getPaidKey(dateStr,field),'1');
+  else localStorage.removeItem(getPaidKey(dateStr,field));
+}; — sync cloud → localStorage
    called once after login
    ===================================================== */
 async function pullFromSupabase(){
@@ -1859,6 +1869,7 @@ function generateIncomeReport(){
       clinicMap[cid].days.push({
         dateLabel:`${parseInt(day)} ${MONTHS_SHORT[m]} ${y+543}`,
         dateNum:y*10000+m*100+parseInt(day),
+        dateStr:`${y}-${String(m+1).padStart(2,'0')}-${String(parseInt(day)).padStart(2,'0')}`,
         sitting:dd.sitting||0,procFee:dd.procFee||0,machFee:dd.machFee||0,
         lump:dd.lump||0,total:dd.total||0,condition:dd.condition||''
       });
@@ -1866,6 +1877,8 @@ function generateIncomeReport(){
   });
   const labels=sortedKeys.map(k=>{const[y,m]=k.split('-');return MONTHS_SHORT[+m]+' '+(+y+543);});
   const title=labels.length<=3?labels.join(', '):labels[0]+' – '+labels[labels.length-1]+' ('+labels.length+' เดือน)';
+  window._lastClinicMap=clinicMap;
+  window._lastIncTitle=title;
   renderIncomeResult(clinicMap,title);
   document.getElementById('incPickerView').style.display='none';
   document.getElementById('incResultView').style.display='block';
@@ -1881,24 +1894,40 @@ function renderIncomeResult(clinicMap,title){
     const sec=document.createElement('div');sec.className='inc-clinic-section';
     sec.innerHTML=`<div class="inc-clinic-header"><div class="inc-clinic-dot" style="background:${cl.color}">${cl.abbr}</div><div class="inc-clinic-name">${cl.name}</div></div>`;
     const table=document.createElement('table');table.className='inc-table';
-    table.innerHTML=`<thead><tr><th>วันที่</th><th class="r">ค่านั่ง</th><th class="r">DF หัตถการ</th><th class="r">DF เครื่อง</th><th class="r">DF รวม</th><th class="r">เวรเหมา</th><th class="r">รวม</th></tr></thead>`;
+    table.innerHTML=`<thead><tr>
+      <th>วันที่</th>
+      <th class="r">ค่านั่ง</th>
+      <th style="text-align:center;font-size:10px">รับแล้ว</th>
+      <th class="r">DF หัตถการ</th>
+      <th class="r">DF เครื่อง</th>
+      <th class="r">DF รวม</th>
+      <th style="text-align:center;font-size:10px">รับแล้ว</th>
+      <th class="r">เวรเหมา</th>
+      <th class="r">รวม</th>
+    </tr></thead>`;
     const tbody=document.createElement('tbody');
     cl.days.sort((a,b)=>b.dateNum-a.dateNum);
     cl.days.forEach(d=>{
       cSit+=d.sitting;cProc+=d.procFee;cMach+=d.machFee;cLump+=d.lump;cTotal+=d.total;
       const tr=document.createElement('tr');
       const gtag=d.condition==='guarantee'?` <span style="font-size:9px;background:#fff3e0;color:#e65100;border-radius:6px;padding:1px 4px;vertical-align:middle">การันตี</span>`:'';
-      tr.innerHTML=`<td>${d.dateLabel}${gtag}</td>
+      const sitPaid=isPaid(d.dateStr,'sit');
+      const dfPaid=isPaid(d.dateStr,'df');
+      if(sitPaid&&dfPaid) tr.classList.add('paid-row');
+      tr.innerHTML=`
+        <td>${d.dateLabel}${gtag}${sitPaid&&dfPaid?'<span class="paid-badge">✓ รับครบ</span>':''}</td>
         <td class="r">${d.sitting>0?'฿'+Math.round(d.sitting).toLocaleString('th-TH'):'—'}</td>
+        <td style="text-align:center"><input type="checkbox" class="paid-chk" ${sitPaid?'checked':''} onchange="togglePaid('${d.dateStr}','sit',this.checked);rerenderIncome()"></td>
         <td class="r">${d.procFee>0?'฿'+Math.round(d.procFee).toLocaleString('th-TH'):'—'}</td>
         <td class="r">${d.machFee>0?'฿'+Math.round(d.machFee).toLocaleString('th-TH'):'—'}</td>
         <td class="r" style="color:var(--primary-mid);font-weight:700">${(d.procFee+d.machFee)>0?'฿'+Math.round(d.procFee+d.machFee).toLocaleString('th-TH'):'—'}</td>
+        <td style="text-align:center"><input type="checkbox" class="paid-chk" ${dfPaid?'checked':''} onchange="togglePaid('${d.dateStr}','df',this.checked);rerenderIncome()"></td>
         <td class="r">${d.lump>0?'฿'+Math.round(d.lump).toLocaleString('th-TH'):'—'}</td>
         <td class="r" style="color:var(--primary);font-weight:700">฿${Math.round(d.total).toLocaleString('th-TH')}</td>`;
       tbody.appendChild(tr);
     });
     const subTr=document.createElement('tr');subTr.className='total-row';
-    subTr.innerHTML=`<td>รวม ${cl.days.length} เวร</td><td class="r">฿${Math.round(cSit).toLocaleString('th-TH')}</td><td class="r">฿${Math.round(cProc).toLocaleString('th-TH')}</td><td class="r">฿${Math.round(cMach).toLocaleString('th-TH')}</td><td class="r">฿${Math.round(cProc+cMach).toLocaleString('th-TH')}</td><td class="r">฿${Math.round(cLump).toLocaleString('th-TH')}</td><td class="r">฿${Math.round(cTotal).toLocaleString('th-TH')}</td>`;
+    subTr.innerHTML=`<td>รวม ${cl.days.length} เวร</td><td class="r">฿${Math.round(cSit).toLocaleString('th-TH')}</td><td></td><td class="r">฿${Math.round(cProc).toLocaleString('th-TH')}</td><td class="r">฿${Math.round(cMach).toLocaleString('th-TH')}</td><td class="r">฿${Math.round(cProc+cMach).toLocaleString('th-TH')}</td><td></td><td class="r">฿${Math.round(cLump).toLocaleString('th-TH')}</td><td class="r">฿${Math.round(cTotal).toLocaleString('th-TH')}</td>`;
     tbody.appendChild(subTr);table.appendChild(tbody);sec.appendChild(table);wrap.appendChild(sec);
     gSit+=cSit;gProc+=cProc;gMach+=cMach;gLump+=cLump;gTotal+=cTotal;
   });
@@ -1907,7 +1936,9 @@ function renderIncomeResult(clinicMap,title){
   wrap.appendChild(grandEl);
 }
 
-async function saveIncomeScreenshot(){
+function rerenderIncome(){
+  if(window._lastClinicMap) renderIncomeResult(window._lastClinicMap,window._lastIncTitle||'');
+}
   const el=document.getElementById('incReportCapture');
   try{const canvas=await html2canvas(el,{scale:2,useCORS:true,backgroundColor:'#ffffff',scrollX:0,scrollY:0,windowWidth:el.scrollWidth,windowHeight:el.scrollHeight});const link=document.createElement('a');link.download='สรุปค่าเวร.png';link.href=canvas.toDataURL('image/png');link.click();}
   catch(e){alert('กด ค้างที่รูปแล้วเลือก "บันทึกรูปภาพ" ครับ/ค่ะ');}
