@@ -336,6 +336,23 @@ canvas.pie-canvas{max-width:100%}
 .backup-status.ok{background:#e8f5e9;color:#2e7d32;display:block}
 .backup-status.err{background:#fde8e8;color:var(--danger);display:block}
 
+/* ===== LOCAL AUTH ===== */
+body.auth-locked{overflow:hidden}
+.auth-overlay{position:fixed;inset:0;background:linear-gradient(180deg,#f4fbf8 0%,#ffffff 100%);z-index:10000;display:none;align-items:center;justify-content:center;padding:22px}
+body.auth-locked .auth-overlay{display:flex}
+.auth-panel{width:100%;max-width:380px;background:#fff;border:1.5px solid var(--border);border-radius:16px;box-shadow:0 18px 45px rgba(26,107,90,.16);padding:24px 22px}
+.auth-title{font-size:22px;font-weight:800;color:var(--primary);margin-bottom:5px}
+.auth-subtitle{font-size:13px;color:var(--text-muted);line-height:1.55;margin-bottom:18px}
+.auth-field{margin-bottom:12px}
+.auth-label{font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:6px}
+.auth-input{width:100%;padding:13px 14px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:16px;font-family:'Sarabun',sans-serif;outline:none}
+.auth-input:focus{border-color:var(--primary-mid)}
+.auth-msg{min-height:18px;font-size:12px;font-weight:700;margin:4px 0 12px;color:var(--danger)}
+.auth-msg.ok{color:#2e7d32}
+.auth-actions{display:flex;gap:8px;align-items:center}
+.auth-actions .btn{flex:1}
+.auth-link-btn{border:none;background:none;color:var(--text-muted);font-size:12px;font-weight:700;font-family:'Sarabun',sans-serif;cursor:pointer;padding:8px}
+
 /* ===== INCOME REPORT ===== */
 .inc-clinic-section{margin-bottom:20px}
 .inc-clinic-header{display:flex;align-items:center;gap:10px;margin-bottom:10px}
@@ -360,7 +377,33 @@ canvas.pie-canvas{max-width:100%}
 .inc-no-data{text-align:center;padding:32px 20px;color:var(--text-muted);font-size:14px}
 </style>
 </head>
-<body>
+<body class="auth-locked">
+
+<div class="auth-overlay" id="authOverlay">
+  <div class="auth-panel">
+    <div class="auth-title" id="authTitle">เข้าสู่ระบบ</div>
+    <div class="auth-subtitle" id="authSubtitle">ใช้ email และ password เดียวกันเพื่อเปิดข้อมูลจากหลายเครื่อง</div>
+    <form onsubmit="handleAuthSubmit(event)">
+      <div class="auth-field">
+        <div class="auth-label">Email</div>
+        <input class="auth-input" type="email" id="authEmail" autocomplete="email" inputmode="email">
+      </div>
+      <div class="auth-field">
+        <div class="auth-label">รหัสผ่าน</div>
+        <input class="auth-input" type="password" id="authPassword" autocomplete="current-password" inputmode="text">
+      </div>
+      <div class="auth-field" id="authConfirmWrap">
+        <div class="auth-label">ยืนยันรหัสผ่าน</div>
+        <input class="auth-input" type="password" id="authConfirm" autocomplete="new-password" inputmode="text">
+      </div>
+      <div class="auth-msg" id="authMsg"></div>
+      <div class="auth-actions">
+        <button class="btn btn-primary" type="submit" id="authSubmitBtn">เข้าสู่ระบบ</button>
+        <button class="auth-link-btn" type="button" id="authModeBtn" onclick="toggleAuthMode()">สมัครใหม่</button>
+      </div>
+    </form>
+  </div>
+</div>
 
 <div class="header">
   <div class="header-top">
@@ -368,6 +411,7 @@ canvas.pie-canvas{max-width:100%}
     <div class="hdr-btns">
       <button class="add-clinic-btn" onclick="openBackup()">💾 Backup</button>
       <button class="add-clinic-btn" onclick="openClinicMgr()">＋ คลินิก</button>
+      <button class="add-clinic-btn" onclick="logoutLocalAuth()">ล็อกออก</button>
     </div>
   </div>
   <div class="month-nav">
@@ -708,8 +752,10 @@ const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
    ===================================================== */
 let _sbSession = null; // optional { access_token, user }
 
-const sbReady = () => !!(SB_URL && SB_KEY);
+const sbReady = () => !!(SB_URL && SB_KEY && _sbSession);
 const sbAuthToken = () => (_sbSession&&_sbSession.access_token)||SB_KEY;
+const sbUserId = () => _sbSession?.user?.id||null;
+const withUser = row => ({...row,user_id:sbUserId()});
 
 async function sbFetch(path, opts={}){
   if(!sbReady()) return null;
@@ -735,7 +781,7 @@ async function sbUpsert(table, row, conflictKey=''){
   const conflictQuery=conflictKey?'?on_conflict='+encodeURIComponent(conflictKey):'';
   return sbFetch('/rest/v1/'+table+conflictQuery, {
     method:'POST', prefer:'resolution=merge-duplicates,return=minimal',
-    body: JSON.stringify(row)
+    body: JSON.stringify(withUser(row))
   });
 }
 
@@ -748,7 +794,7 @@ async function sbDelete(table, filter){
 }
 
 function sbLoadSession(){
-  try{const s=localStorage.getItem('sb_session');if(s)_sbSession=JSON.parse(s);}catch(e){}
+  try{const s=sessionStorage.getItem('sb_session');if(s)_sbSession=JSON.parse(s);}catch(e){}
 }
 
 /* =====================================================
@@ -888,6 +934,102 @@ function showSyncBanner(msg){
   b.textContent=msg;b.style.display='block';
 }
 function hideSyncBanner(){const b=document.getElementById('syncBanner');if(b)b.style.display='none';}
+
+let authMode='login';
+
+function setAuthMsg(text,ok=false){
+  const el=document.getElementById('authMsg');
+  if(!el)return;
+  el.textContent=text||'';
+  el.className='auth-msg'+(ok?' ok':'');
+}
+function setAuthMode(mode){
+  authMode=mode;
+  const isSignup=mode==='signup';
+  document.getElementById('authTitle').textContent=isSignup?'สมัครใช้งาน':'เข้าสู่ระบบ';
+  document.getElementById('authSubtitle').textContent=isSignup?'สร้าง account Supabase เพื่อ sync ข้ามเครื่อง':'ใช้ email และ password เดียวกันเพื่อเปิดข้อมูลจากหลายเครื่อง';
+  document.getElementById('authConfirmWrap').style.display=isSignup?'block':'none';
+  document.getElementById('authSubmitBtn').textContent=isSignup?'สมัครใช้งาน':'เข้าสู่ระบบ';
+  document.getElementById('authModeBtn').textContent=isSignup?'มีบัญชีแล้ว':'สมัครใหม่';
+  document.getElementById('authOverlay').dataset.mode=mode;
+  document.getElementById('authEmail').value='';
+  document.getElementById('authPassword').value='';
+  document.getElementById('authConfirm').value='';
+  setAuthMsg('');
+  setTimeout(()=>document.getElementById('authEmail')?.focus(),50);
+}
+function toggleAuthMode(){
+  setAuthMode(authMode==='login'?'signup':'login');
+}
+function saveSbSession(session){
+  _sbSession=session;
+  sessionStorage.setItem('sb_session',JSON.stringify(session));
+}
+async function sbAuthRequest(path,body){
+  const res=await fetch(SB_URL+path,{
+    method:'POST',
+    headers:{'apikey':SB_KEY,'Content-Type':'application/json'},
+    body:JSON.stringify(body)
+  });
+  const text=await res.text();
+  const json=text?JSON.parse(text):null;
+  if(!res.ok) throw new Error(json?.msg||json?.message||'Auth failed');
+  return json;
+}
+async function refreshSupabaseSession(){
+  if(!_sbSession?.refresh_token)return false;
+  try{
+    const json=await sbAuthRequest('/auth/v1/token?grant_type=refresh_token',{refresh_token:_sbSession.refresh_token});
+    saveSbSession(json);
+    return true;
+  }catch(e){
+    sessionStorage.removeItem('sb_session');
+    _sbSession=null;
+    return false;
+  }
+}
+async function unlockSupabaseAuth(){
+  document.body.classList.remove('auth-locked');
+  await pullFromSupabase();
+}
+async function initSupabaseAuth(){
+  sbLoadSession();
+  if(_sbSession){
+    await refreshSupabaseSession();
+    if(_sbSession){await unlockSupabaseAuth();return;}
+  }
+  document.body.classList.add('auth-locked');
+  setAuthMode('login');
+}
+async function handleAuthSubmit(e){
+  e.preventDefault();
+  const email=document.getElementById('authEmail').value.trim();
+  const pass=document.getElementById('authPassword').value;
+  const confirmPass=document.getElementById('authConfirm').value;
+  if(!email){setAuthMsg('กรุณากรอก email');return;}
+  if(pass.length<4){setAuthMsg('รหัสต้องมีอย่างน้อย 4 ตัวอักษร');return;}
+  try{
+    if(authMode==='signup'){
+    if(pass!==confirmPass){setAuthMsg('รหัสยืนยันไม่ตรงกัน');return;}
+      const json=await sbAuthRequest('/auth/v1/signup',{email,password:pass});
+      if(json.access_token){saveSbSession(json);await unlockSupabaseAuth();}
+      else{setAuthMsg('สมัครแล้ว โปรดยืนยัน email ก่อนเข้าสู่ระบบ',true);setAuthMode('login');}
+      return;
+    }
+    const json=await sbAuthRequest('/auth/v1/token?grant_type=password',{email,password:pass});
+    saveSbSession(json);
+    await unlockSupabaseAuth();
+    return;
+  }catch(err){
+    setAuthMsg(err.message||'เข้าสู่ระบบไม่สำเร็จ');
+  }
+}
+function logoutLocalAuth(){
+  sessionStorage.removeItem('sb_session');
+  _sbSession=null;
+  document.body.classList.add('auth-locked');
+  setAuthMode('login');
+}
 
 const fmt=n=>(!n&&n!==0)?'—':'฿'+Math.round(n).toLocaleString('th-TH');
 const fmtC=n=>n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(0)+'k':Math.round(n).toLocaleString('th-TH');
@@ -1811,9 +1953,8 @@ async function saveScreenshot(){
 }
 
 renderColorGrid();
-sbLoadSession();
 renderCalendar();
-if(sbReady()) pullFromSupabase();
+initSupabaseAuth();
 
 /* ===== INCOME REPORT ===== */
 let incYear=today.getFullYear(), incSelectedMonths=new Set();

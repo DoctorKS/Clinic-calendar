@@ -59,6 +59,7 @@ alter table public.clinics add column if not exists mach_pct text;
 alter table public.clinics add column if not exists condition text;
 alter table public.clinics add column if not exists created_at timestamptz not null default now();
 alter table public.clinics add column if not exists updated_at timestamptz not null default now();
+alter table public.clinics add column if not exists user_id uuid references auth.users(id) on delete cascade;
 
 alter table public.shifts add column if not exists clinic_id text;
 alter table public.shifts add column if not exists condition text;
@@ -77,15 +78,27 @@ alter table public.shifts add column if not exists paid_sitting boolean not null
 alter table public.shifts add column if not exists paid_df boolean not null default false;
 alter table public.shifts add column if not exists created_at timestamptz not null default now();
 alter table public.shifts add column if not exists updated_at timestamptz not null default now();
+alter table public.shifts add column if not exists user_id uuid references auth.users(id) on delete cascade;
 create unique index if not exists shifts_shift_date_key on public.shifts (shift_date);
 
 alter table public.user_lists add column if not exists items jsonb not null default '[]'::jsonb;
 alter table public.user_lists add column if not exists created_at timestamptz not null default now();
 alter table public.user_lists add column if not exists updated_at timestamptz not null default now();
+alter table public.user_lists add column if not exists user_id uuid references auth.users(id) on delete cascade;
 
 alter table public.hanging_fees add column if not exists amount numeric default 0;
 alter table public.hanging_fees add column if not exists created_at timestamptz not null default now();
 alter table public.hanging_fees add column if not exists updated_at timestamptz not null default now();
+alter table public.hanging_fees add column if not exists user_id uuid references auth.users(id) on delete cascade;
+
+update public.clinics set user_id = (select id from auth.users order by created_at asc limit 1)
+where user_id is null and exists (select 1 from auth.users);
+update public.shifts set user_id = (select id from auth.users order by created_at asc limit 1)
+where user_id is null and exists (select 1 from auth.users);
+update public.user_lists set user_id = (select id from auth.users order by created_at asc limit 1)
+where user_id is null and exists (select 1 from auth.users);
+update public.hanging_fees set user_id = (select id from auth.users order by created_at asc limit 1)
+where user_id is null and exists (select 1 from auth.users);
 
 alter table public.clinics enable row level security;
 alter table public.shifts enable row level security;
@@ -96,38 +109,54 @@ drop policy if exists "anon read clinics" on public.clinics;
 drop policy if exists "anon insert clinics" on public.clinics;
 drop policy if exists "anon update clinics" on public.clinics;
 drop policy if exists "anon delete clinics" on public.clinics;
+drop policy if exists "user read clinics" on public.clinics;
+drop policy if exists "user insert clinics" on public.clinics;
+drop policy if exists "user update clinics" on public.clinics;
+drop policy if exists "user delete clinics" on public.clinics;
 
-create policy "anon read clinics" on public.clinics for select to anon using (true);
-create policy "anon insert clinics" on public.clinics for insert to anon with check (true);
-create policy "anon update clinics" on public.clinics for update to anon using (true) with check (true);
-create policy "anon delete clinics" on public.clinics for delete to anon using (true);
+create policy "user read clinics" on public.clinics for select to authenticated using (auth.uid() = user_id);
+create policy "user insert clinics" on public.clinics for insert to authenticated with check (auth.uid() = user_id);
+create policy "user update clinics" on public.clinics for update to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "user delete clinics" on public.clinics for delete to authenticated using (auth.uid() = user_id);
 
 drop policy if exists "anon read shifts" on public.shifts;
 drop policy if exists "anon insert shifts" on public.shifts;
 drop policy if exists "anon update shifts" on public.shifts;
 drop policy if exists "anon delete shifts" on public.shifts;
+drop policy if exists "user read shifts" on public.shifts;
+drop policy if exists "user insert shifts" on public.shifts;
+drop policy if exists "user update shifts" on public.shifts;
+drop policy if exists "user delete shifts" on public.shifts;
 
-create policy "anon read shifts" on public.shifts for select to anon using (true);
-create policy "anon insert shifts" on public.shifts for insert to anon with check (true);
-create policy "anon update shifts" on public.shifts for update to anon using (true) with check (true);
-create policy "anon delete shifts" on public.shifts for delete to anon using (true);
+create policy "user read shifts" on public.shifts for select to authenticated using (auth.uid() = user_id);
+create policy "user insert shifts" on public.shifts for insert to authenticated with check (auth.uid() = user_id);
+create policy "user update shifts" on public.shifts for update to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "user delete shifts" on public.shifts for delete to authenticated using (auth.uid() = user_id);
 
 drop policy if exists "anon read user lists" on public.user_lists;
 drop policy if exists "anon insert user lists" on public.user_lists;
 drop policy if exists "anon update user lists" on public.user_lists;
 drop policy if exists "anon delete user lists" on public.user_lists;
+drop policy if exists "user read user lists" on public.user_lists;
+drop policy if exists "user insert user lists" on public.user_lists;
+drop policy if exists "user update user lists" on public.user_lists;
+drop policy if exists "user delete user lists" on public.user_lists;
 
-create policy "anon read user lists" on public.user_lists for select to anon using (true);
-create policy "anon insert user lists" on public.user_lists for insert to anon with check (true);
-create policy "anon update user lists" on public.user_lists for update to anon using (true) with check (true);
-create policy "anon delete user lists" on public.user_lists for delete to anon using (true);
+create policy "user read user lists" on public.user_lists for select to authenticated using (auth.uid() = user_id);
+create policy "user insert user lists" on public.user_lists for insert to authenticated with check (auth.uid() = user_id);
+create policy "user update user lists" on public.user_lists for update to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "user delete user lists" on public.user_lists for delete to authenticated using (auth.uid() = user_id);
 
 drop policy if exists "anon read hanging fees" on public.hanging_fees;
 drop policy if exists "anon insert hanging fees" on public.hanging_fees;
 drop policy if exists "anon update hanging fees" on public.hanging_fees;
 drop policy if exists "anon delete hanging fees" on public.hanging_fees;
+drop policy if exists "user read hanging fees" on public.hanging_fees;
+drop policy if exists "user insert hanging fees" on public.hanging_fees;
+drop policy if exists "user update hanging fees" on public.hanging_fees;
+drop policy if exists "user delete hanging fees" on public.hanging_fees;
 
-create policy "anon read hanging fees" on public.hanging_fees for select to anon using (true);
-create policy "anon insert hanging fees" on public.hanging_fees for insert to anon with check (true);
-create policy "anon update hanging fees" on public.hanging_fees for update to anon using (true) with check (true);
-create policy "anon delete hanging fees" on public.hanging_fees for delete to anon using (true);
+create policy "user read hanging fees" on public.hanging_fees for select to authenticated using (auth.uid() = user_id);
+create policy "user insert hanging fees" on public.hanging_fees for insert to authenticated with check (auth.uid() = user_id);
+create policy "user update hanging fees" on public.hanging_fees for update to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "user delete hanging fees" on public.hanging_fees for delete to authenticated using (auth.uid() = user_id);
