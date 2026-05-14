@@ -794,7 +794,7 @@ async function sbDelete(table, filter){
 }
 
 function sbLoadSession(){
-  try{const s=sessionStorage.getItem('sb_session');if(s)_sbSession=JSON.parse(s);}catch(e){}
+  try{const s=localStorage.getItem('sb_session');if(s)_sbSession=JSON.parse(s);}catch(e){}
 }
 
 /* =====================================================
@@ -963,7 +963,7 @@ function toggleAuthMode(){
 }
 function saveSbSession(session){
   _sbSession=session;
-  sessionStorage.setItem('sb_session',JSON.stringify(session));
+  localStorage.setItem('sb_session',JSON.stringify(session));
 }
 async function sbAuthRequest(path,body){
   const res=await fetch(SB_URL+path,{
@@ -983,7 +983,7 @@ async function refreshSupabaseSession(){
     saveSbSession(json);
     return true;
   }catch(e){
-    sessionStorage.removeItem('sb_session');
+    localStorage.removeItem('sb_session');
     _sbSession=null;
     return false;
   }
@@ -1025,7 +1025,7 @@ async function handleAuthSubmit(e){
   }
 }
 function logoutLocalAuth(){
-  sessionStorage.removeItem('sb_session');
+  localStorage.removeItem('sb_session');
   _sbSession=null;
   document.body.classList.add('auth-locked');
   setAuthMode('login');
