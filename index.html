@@ -700,15 +700,16 @@ let patients=[], machRows=[];
 /* =====================================================
    SUPABASE CONFIG — ใส่ค่าจาก Project Settings > API
    ===================================================== */
-const SB_URL = '';   // เช่น https://xxxxxxxxxxxx.supabase.co
-const SB_KEY = '';   // anon public key
+const SB_URL = 'https://oumsfyjefpwzecgjckii.supabase.co';
+const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im91bXNmeWplZnB3emVjZ2pja2lpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc4ODAxNjIsImV4cCI6MjA5MzQ1NjE2Mn0.epSLX2etMDLaGQ2NU3a6IV6RwXg89zfN0RoEtImg9pI';
 
 /* =====================================================
    SUPABASE HELPERS — thin fetch wrapper
    ===================================================== */
-let _sbSession = null; // { access_token, user }
+let _sbSession = null; // optional { access_token, user }
 
 const sbReady = () => !!(SB_URL && SB_KEY);
+const sbAuthToken = () => (_sbSession&&_sbSession.access_token)||SB_KEY;
 
 async function sbFetch(path, opts={}){
   if(!sbReady()) return null;
@@ -716,21 +717,25 @@ async function sbFetch(path, opts={}){
     ...opts,
     headers:{
       'apikey': SB_KEY,
-      'Authorization': 'Bearer ' + _sbSession.access_token,
+      'Authorization': 'Bearer ' + sbAuthToken(),
       'Content-Type': 'application/json',
       'Prefer': opts.prefer||'',
       ...(opts.headers||{})
     }
   });
-  if(!res.ok) return null;
+  if(!res.ok){
+    try{console.warn('Supabase error',res.status,path,await res.text());}catch(e){}
+    return null;
+  }
   const text = await res.text();
   return text ? JSON.parse(text) : null;
 }
 
-async function sbUpsert(table, row){
-  return sbFetch('/rest/v1/'+table, {
+async function sbUpsert(table, row, conflictKey=''){
+  const conflictQuery=conflictKey?'?on_conflict='+encodeURIComponent(conflictKey):'';
+  return sbFetch('/rest/v1/'+table+conflictQuery, {
     method:'POST', prefer:'resolution=merge-duplicates,return=minimal',
-    body: JSON.stringify({...row, user_id: _sbSession.user.id})
+    body: JSON.stringify(row)
   });
 }
 
@@ -767,8 +772,9 @@ async function saveData(y,m,d){
       proc_pct: dd.procPct||0, mach_pct: dd.machPct||0,
       sitting: dd.sitting||0, proc_fee: dd.procFee||0, mach_fee: dd.machFee||0,
       lump: dd.lump||0, total: dd.total||0,
-      patients: dd.patients||[], machs: dd.machs||[]
-    });
+      patients: dd.patients||[], machs: dd.machs||[],
+      paid_sitting: !!dd.paidSitting, paid_df: !!dd.paidDf
+    },'shift_date');
   });
   await Promise.allSettled(promises.filter(Boolean));
 }
@@ -781,19 +787,19 @@ async function saveClinics(arr){
     id:cl.id, name:cl.name, abbr:cl.abbr, color:cl.color,
     hour_rate:cl.hourRate||'', hours:cl.hours||'', lump:cl.lump||'',
     proc_pct:cl.procPct||'', mach_pct:cl.machPct||'', condition:cl.condition||''
-  })));
+  },'id')));
 }
 
 const getProcList=()=>{try{const s=JSON.parse(localStorage.getItem('proc_list')||'[]');return s.length?s:[...DEFAULT_PROCS]}catch(e){return[...DEFAULT_PROCS]}};
 async function saveProcList(arr){
   localStorage.setItem('proc_list',JSON.stringify(arr));
-  if(sbReady()) sbUpsert('user_lists',{list_name:'proc_list',items:arr});
+  if(sbReady()) sbUpsert('user_lists',{list_name:'proc_list',items:arr},'list_name');
 }
 
 const getMachList=()=>{try{const s=JSON.parse(localStorage.getItem('mach_list')||'[]');return s.length?s:[...DEFAULT_MACHS]}catch(e){return[...DEFAULT_MACHS]}};
 async function saveMachList(arr){
   localStorage.setItem('mach_list',JSON.stringify(arr));
-  if(sbReady()) sbUpsert('user_lists',{list_name:'mach_list',items:arr});
+  if(sbReady()) sbUpsert('user_lists',{list_name:'mach_list',items:arr},'list_name');
 }
 
 const getTradeList=()=>{try{return JSON.parse(localStorage.getItem('trade_list')||'[]')}catch(e){return[]}};
@@ -801,7 +807,7 @@ const saveTradeToList=name=>{
   if(!name||name.length<2)return;
   const l=getTradeList();
   if(!l.includes(name)){l.unshift(name);if(l.length>100)l.pop();localStorage.setItem('trade_list',JSON.stringify(l));}
-  if(sbReady()) sbUpsert('user_lists',{list_name:'trade_list',items:l});
+  if(sbReady()) sbUpsert('user_lists',{list_name:'trade_list',items:l},'list_name');
 };
 
 /* --- Hanging fee --- */
@@ -809,7 +815,7 @@ const skHang=(y,m)=>`hang_${y}_${m}`;
 const getHanging=(y,m)=>{const v=localStorage.getItem(skHang(y,m));return v!==null?parseFloat(v)||0:0;};
 async function saveHanging(y,m,val){
   localStorage.setItem(skHang(y,m),val);
-  if(sbReady()) sbUpsert('hanging_fees',{year_month:`${y}-${m}`, amount:parseFloat(val)||0});
+  if(sbReady()) sbUpsert('hanging_fees',{year_month:`${y}-${m}`, amount:parseFloat(val)||0},'year_month');
 }
 
 /* =====================================================
@@ -846,7 +852,8 @@ async function pullFromSupabase(){
         sitting:s.sitting, procFee:s.proc_fee, machFee:s.mach_fee,
         lump:s.lump, total:s.total,
         patients:s.patients||[], machs:s.machs||[],
-        paidSitting:!!localDay.paidSitting, paidDf:!!localDay.paidDf
+        paidSitting:s.paid_sitting!==undefined?!!s.paid_sitting:!!localDay.paidSitting,
+        paidDf:s.paid_df!==undefined?!!s.paid_df:!!localDay.paidDf
       };
     });
     Object.entries(byYM).forEach(([key,val])=>localStorage.setItem(key,JSON.stringify(val)));
@@ -1806,7 +1813,7 @@ async function saveScreenshot(){
 renderColorGrid();
 sbLoadSession();
 renderCalendar();
-if(_sbSession) pullFromSupabase();
+if(sbReady()) pullFromSupabase();
 
 /* ===== INCOME REPORT ===== */
 let incYear=today.getFullYear(), incSelectedMonths=new Set();
