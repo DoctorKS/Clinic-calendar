@@ -349,9 +349,10 @@ body.auth-locked .auth-overlay{display:flex}
 .auth-input:focus{border-color:var(--primary-mid)}
 .auth-msg{min-height:18px;font-size:12px;font-weight:700;margin:4px 0 12px;color:var(--danger)}
 .auth-msg.ok{color:#2e7d32}
-.auth-actions{display:flex;gap:8px;align-items:center}
+.auth-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .auth-actions .btn{flex:1}
 .auth-link-btn{border:none;background:none;color:var(--text-muted);font-size:12px;font-weight:700;font-family:'Sarabun',sans-serif;cursor:pointer;padding:8px}
+.auth-forgot-btn{width:100%;text-align:center;padding-top:2px}
 
 /* ===== INCOME REPORT ===== */
 .inc-clinic-section{margin-bottom:20px}
@@ -384,7 +385,7 @@ body.auth-locked .auth-overlay{display:flex}
     <div class="auth-title" id="authTitle">เข้าสู่ระบบ</div>
     <div class="auth-subtitle" id="authSubtitle">ใช้ email และ password เดียวกันเพื่อเปิดข้อมูลจากหลายเครื่อง</div>
     <form onsubmit="handleAuthSubmit(event)">
-      <div class="auth-field">
+      <div class="auth-field" id="authEmailWrap">
         <div class="auth-label">Email</div>
         <input class="auth-input" type="email" id="authEmail" autocomplete="email" inputmode="email">
       </div>
@@ -400,6 +401,7 @@ body.auth-locked .auth-overlay{display:flex}
       <div class="auth-actions">
         <button class="btn btn-primary" type="submit" id="authSubmitBtn">เข้าสู่ระบบ</button>
         <button class="auth-link-btn" type="button" id="authModeBtn" onclick="toggleAuthMode()">สมัครใหม่</button>
+        <button class="auth-link-btn auth-forgot-btn" type="button" id="authForgotBtn" onclick="handleForgotPassword()">ลืมรหัสผ่าน</button>
       </div>
     </form>
   </div>
@@ -751,6 +753,8 @@ const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
    SUPABASE HELPERS — thin fetch wrapper
    ===================================================== */
 let _sbSession = null; // optional { access_token, user }
+let _recoveryAccessToken = null;
+let _recoveryRefreshToken = null;
 
 const sbReady = () => !!(SB_URL && SB_KEY && _sbSession);
 const sbAuthToken = () => (_sbSession&&_sbSession.access_token)||SB_KEY;
@@ -946,17 +950,21 @@ function setAuthMsg(text,ok=false){
 function setAuthMode(mode){
   authMode=mode;
   const isSignup=mode==='signup';
-  document.getElementById('authTitle').textContent=isSignup?'สมัครใช้งาน':'เข้าสู่ระบบ';
-  document.getElementById('authSubtitle').textContent=isSignup?'สร้าง account Supabase เพื่อ sync ข้ามเครื่อง':'ใช้ email และ password เดียวกันเพื่อเปิดข้อมูลจากหลายเครื่อง';
-  document.getElementById('authConfirmWrap').style.display=isSignup?'block':'none';
-  document.getElementById('authSubmitBtn').textContent=isSignup?'สมัครใช้งาน':'เข้าสู่ระบบ';
+  const isReset=mode==='reset';
+  document.getElementById('authTitle').textContent=isReset?'ตั้งรหัสผ่านใหม่':(isSignup?'สมัครใช้งาน':'เข้าสู่ระบบ');
+  document.getElementById('authSubtitle').textContent=isReset?'กรอกรหัสผ่านใหม่จากลิงก์รีเซ็ตใน email':(isSignup?'สร้าง account Supabase เพื่อ sync ข้ามเครื่อง':'ใช้ email และ password เดียวกันเพื่อเปิดข้อมูลจากหลายเครื่อง');
+  document.getElementById('authEmailWrap').style.display=isReset?'none':'block';
+  document.getElementById('authConfirmWrap').style.display=(isSignup||isReset)?'block':'none';
+  document.getElementById('authSubmitBtn').textContent=isReset?'บันทึกรหัสใหม่':(isSignup?'สมัครใช้งาน':'เข้าสู่ระบบ');
+  document.getElementById('authModeBtn').style.display=isReset?'none':'inline-block';
   document.getElementById('authModeBtn').textContent=isSignup?'มีบัญชีแล้ว':'สมัครใหม่';
+  document.getElementById('authForgotBtn').style.display=mode==='login'?'block':'none';
   document.getElementById('authOverlay').dataset.mode=mode;
   document.getElementById('authEmail').value='';
   document.getElementById('authPassword').value='';
   document.getElementById('authConfirm').value='';
   setAuthMsg('');
-  setTimeout(()=>document.getElementById('authEmail')?.focus(),50);
+  setTimeout(()=>document.getElementById(isReset?'authPassword':'authEmail')?.focus(),50);
 }
 function toggleAuthMode(){
   setAuthMode(authMode==='login'?'signup':'login');
@@ -988,11 +996,41 @@ async function refreshSupabaseSession(){
     return false;
   }
 }
+function readRecoverySession(){
+  const hash=window.location.hash||'';
+  if(!hash.includes('access_token'))return false;
+  const params=new URLSearchParams(hash.replace(/^#/,''));
+  if(params.get('type')!=='recovery'||!params.get('access_token'))return false;
+  _recoveryAccessToken=params.get('access_token');
+  _recoveryRefreshToken=params.get('refresh_token')||null;
+  window.history.replaceState(null,'',window.location.pathname+window.location.search);
+  return true;
+}
+async function handleForgotPassword(){
+  const email=document.getElementById('authEmail').value.trim();
+  if(!email){
+    setAuthMsg('กรุณากรอก email ก่อน');
+    document.getElementById('authEmail')?.focus();
+    return;
+  }
+  try{
+    const redirectTo=encodeURIComponent(window.location.href.split('#')[0]);
+    await sbAuthRequest('/auth/v1/recover?redirect_to='+redirectTo,{email});
+    setAuthMsg('ส่งลิงก์ตั้งรหัสผ่านใหม่ไปที่ email แล้ว',true);
+  }catch(err){
+    setAuthMsg(err.message||'ส่งลิงก์ตั้งรหัสผ่านใหม่ไม่สำเร็จ');
+  }
+}
 async function unlockSupabaseAuth(){
   document.body.classList.remove('auth-locked');
   await pullFromSupabase();
 }
 async function initSupabaseAuth(){
+  if(readRecoverySession()){
+    document.body.classList.add('auth-locked');
+    setAuthMode('reset');
+    return;
+  }
   sbLoadSession();
   if(_sbSession){
     await refreshSupabaseSession();
@@ -1006,6 +1044,30 @@ async function handleAuthSubmit(e){
   const email=document.getElementById('authEmail').value.trim();
   const pass=document.getElementById('authPassword').value;
   const confirmPass=document.getElementById('authConfirm').value;
+  if(authMode==='reset'){
+    if(pass.length<6){setAuthMsg('รหัสต้องมีอย่างน้อย 6 ตัวอักษร');return;}
+    if(pass!==confirmPass){setAuthMsg('รหัสยืนยันไม่ตรงกัน');return;}
+    if(!_recoveryAccessToken){setAuthMsg('ลิงก์รีเซ็ตหมดอายุ กรุณาขอลิงก์ใหม่');return;}
+    try{
+      const res=await fetch(SB_URL+'/auth/v1/user',{
+        method:'PUT',
+        headers:{'apikey':SB_KEY,'Authorization':'Bearer '+_recoveryAccessToken,'Content-Type':'application/json'},
+        body:JSON.stringify({password:pass})
+      });
+      const text=await res.text();
+      const json=text?JSON.parse(text):null;
+      if(!res.ok) throw new Error(json?.msg||json?.message||'Reset password failed');
+      _recoveryAccessToken=null;
+      _recoveryRefreshToken=null;
+      localStorage.removeItem('sb_session');
+      setAuthMode('login');
+      setAuthMsg('เปลี่ยนรหัสผ่านแล้ว กรุณาเข้าสู่ระบบใหม่',true);
+      return;
+    }catch(err){
+      setAuthMsg(err.message||'เปลี่ยนรหัสผ่านไม่สำเร็จ');
+      return;
+    }
+  }
   if(!email){setAuthMsg('กรุณากรอก email');return;}
   if(pass.length<4){setAuthMsg('รหัสต้องมีอย่างน้อย 4 ตัวอักษร');return;}
   try{
