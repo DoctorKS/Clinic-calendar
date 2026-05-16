@@ -760,6 +760,28 @@ const sbReady = () => !!(SB_URL && SB_KEY && _sbSession);
 const sbAuthToken = () => (_sbSession&&_sbSession.access_token)||SB_KEY;
 const sbUserId = () => _sbSession?.user?.id||null;
 const withUser = row => ({...row,user_id:sbUserId()});
+const appDataKey = key => key&&(key.startsWith('clinic_')||key.startsWith('hang_')||
+  ['clinic_presets','proc_list','mach_list','trade_list'].includes(key));
+const appStorageKey = key => sbUserId()?`cc_${sbUserId()}_${key}`:key;
+const appGetItem = key => localStorage.getItem(appStorageKey(key));
+const appSetItem = (key,val) => localStorage.setItem(appStorageKey(key),val);
+const appRemoveItem = key => localStorage.removeItem(appStorageKey(key));
+const sbUserFilter = () => sbUserId()?'user_id=eq.'+encodeURIComponent(sbUserId()):'';
+function eachAppCacheKey(cb){
+  const uid=sbUserId();
+  const prefix=uid?`cc_${uid}_`:'';
+  for(let i=0;i<localStorage.length;i++){
+    const storedKey=localStorage.key(i);
+    if(!storedKey) continue;
+    const baseKey=prefix?(storedKey.startsWith(prefix)?storedKey.slice(prefix.length):''):storedKey;
+    if(appDataKey(baseKey)) cb(baseKey,storedKey);
+  }
+}
+function clearCurrentUserCache(){
+  const keys=[];
+  eachAppCacheKey((base,stored)=>keys.push(stored));
+  keys.forEach(k=>localStorage.removeItem(k));
+}
 
 async function sbFetch(path, opts={}){
   if(!sbReady()) return null;
@@ -790,11 +812,18 @@ async function sbUpsert(table, row, conflictKey=''){
 }
 
 async function sbSelect(table, filter=''){
-  return sbFetch('/rest/v1/'+table+'?'+filter+'&select=*');
+  const parts=[];
+  if(filter) parts.push(filter);
+  if(sbUserFilter()) parts.push(sbUserFilter());
+  parts.push('select=*');
+  return sbFetch('/rest/v1/'+table+'?'+parts.join('&'));
 }
 
 async function sbDelete(table, filter){
-  return sbFetch('/rest/v1/'+table+'?'+filter, {method:'DELETE'});
+  const parts=[];
+  if(filter) parts.push(filter);
+  if(sbUserFilter()) parts.push(sbUserFilter());
+  return sbFetch('/rest/v1/'+table+'?'+parts.join('&'), {method:'DELETE'});
 }
 
 function sbLoadSession(){
@@ -807,10 +836,10 @@ function sbLoadSession(){
    Supabase = background write (durable)
    ===================================================== */
 const sk=(y,m)=>`clinic_${y}_${m}`;
-const getData=(y,m)=>{try{return JSON.parse(localStorage.getItem(sk(y,m))||'{}')}catch(e){return{}}};
+const getData=(y,m)=>{try{return JSON.parse(appGetItem(sk(y,m))||'{}')}catch(e){return{}}};
 
 async function saveData(y,m,d){
-  localStorage.setItem(sk(y,m), JSON.stringify(d));
+  appSetItem(sk(y,m), JSON.stringify(d));
   if(!sbReady()) return;
   // sync each day entry to Supabase shifts table
   const promises = Object.entries(d).map(([day, dd])=>{
@@ -824,48 +853,48 @@ async function saveData(y,m,d){
       lump: dd.lump||0, total: dd.total||0,
       patients: dd.patients||[], machs: dd.machs||[],
       paid_sitting: !!dd.paidSitting, paid_df: !!dd.paidDf
-    },'shift_date');
+    },'user_id,shift_date');
   });
   await Promise.allSettled(promises.filter(Boolean));
 }
 
-const getClinics=()=>{try{return JSON.parse(localStorage.getItem('clinic_presets')||'[]')}catch(e){return[]}};
+const getClinics=()=>{try{return JSON.parse(appGetItem('clinic_presets')||'[]')}catch(e){return[]}};
 async function saveClinics(arr){
-  localStorage.setItem('clinic_presets', JSON.stringify(arr));
+  appSetItem('clinic_presets', JSON.stringify(arr));
   if(!sbReady()) return;
   await Promise.allSettled(arr.map(cl=>sbUpsert('clinics',{
     id:cl.id, name:cl.name, abbr:cl.abbr, color:cl.color,
     hour_rate:cl.hourRate||'', hours:cl.hours||'', lump:cl.lump||'',
     proc_pct:cl.procPct||'', mach_pct:cl.machPct||'', condition:cl.condition||''
-  },'id')));
+  },'user_id,id')));
 }
 
-const getProcList=()=>{try{const s=JSON.parse(localStorage.getItem('proc_list')||'[]');return s.length?s:[...DEFAULT_PROCS]}catch(e){return[...DEFAULT_PROCS]}};
+const getProcList=()=>{try{const s=JSON.parse(appGetItem('proc_list')||'[]');return s.length?s:[...DEFAULT_PROCS]}catch(e){return[...DEFAULT_PROCS]}};
 async function saveProcList(arr){
-  localStorage.setItem('proc_list',JSON.stringify(arr));
-  if(sbReady()) sbUpsert('user_lists',{list_name:'proc_list',items:arr},'list_name');
+  appSetItem('proc_list',JSON.stringify(arr));
+  if(sbReady()) sbUpsert('user_lists',{list_name:'proc_list',items:arr},'user_id,list_name');
 }
 
-const getMachList=()=>{try{const s=JSON.parse(localStorage.getItem('mach_list')||'[]');return s.length?s:[...DEFAULT_MACHS]}catch(e){return[...DEFAULT_MACHS]}};
+const getMachList=()=>{try{const s=JSON.parse(appGetItem('mach_list')||'[]');return s.length?s:[...DEFAULT_MACHS]}catch(e){return[...DEFAULT_MACHS]}};
 async function saveMachList(arr){
-  localStorage.setItem('mach_list',JSON.stringify(arr));
-  if(sbReady()) sbUpsert('user_lists',{list_name:'mach_list',items:arr},'list_name');
+  appSetItem('mach_list',JSON.stringify(arr));
+  if(sbReady()) sbUpsert('user_lists',{list_name:'mach_list',items:arr},'user_id,list_name');
 }
 
-const getTradeList=()=>{try{return JSON.parse(localStorage.getItem('trade_list')||'[]')}catch(e){return[]}};
+const getTradeList=()=>{try{return JSON.parse(appGetItem('trade_list')||'[]')}catch(e){return[]}};
 const saveTradeToList=name=>{
   if(!name||name.length<2)return;
   const l=getTradeList();
-  if(!l.includes(name)){l.unshift(name);if(l.length>100)l.pop();localStorage.setItem('trade_list',JSON.stringify(l));}
-  if(sbReady()) sbUpsert('user_lists',{list_name:'trade_list',items:l},'list_name');
+  if(!l.includes(name)){l.unshift(name);if(l.length>100)l.pop();appSetItem('trade_list',JSON.stringify(l));}
+  if(sbReady()) sbUpsert('user_lists',{list_name:'trade_list',items:l},'user_id,list_name');
 };
 
 /* --- Hanging fee --- */
 const skHang=(y,m)=>`hang_${y}_${m}`;
-const getHanging=(y,m)=>{const v=localStorage.getItem(skHang(y,m));return v!==null?parseFloat(v)||0:0;};
+const getHanging=(y,m)=>{const v=appGetItem(skHang(y,m));return v!==null?parseFloat(v)||0:0;};
 async function saveHanging(y,m,val){
-  localStorage.setItem(skHang(y,m),val);
-  if(sbReady()) sbUpsert('hanging_fees',{year_month:`${y}-${m}`, amount:parseFloat(val)||0},'year_month');
+  appSetItem(skHang(y,m),val);
+  if(sbReady()) sbUpsert('hanging_fees',{year_month:`${y}-${m}`, amount:parseFloat(val)||0},'user_id,year_month');
 }
 
 /* =====================================================
@@ -876,17 +905,24 @@ async function pullFromSupabase(){
   if(!sbReady()) return;
   showSyncBanner('🔄 กำลัง sync ข้อมูลจาก cloud...');
 
-  // clinics
   const cls = await sbSelect('clinics','order=created_at.asc');
-  if(cls?.length){
-    const mapped = cls.map(c=>({id:c.id,name:c.name,abbr:c.abbr,color:c.color,
-      hourRate:c.hour_rate,hours:c.hours,lump:c.lump,
-      procPct:c.proc_pct,machPct:c.mach_pct,condition:c.condition||''}));
-    localStorage.setItem('clinic_presets', JSON.stringify(mapped));
+  const shifts = await sbSelect('shifts','order=shift_date.asc');
+  const hangs = await sbSelect('hanging_fees');
+  const lists = await sbSelect('user_lists');
+  if([cls,shifts,hangs,lists].some(v=>v===null)){
+    hideSyncBanner();
+    throw new Error('Supabase sync failed');
   }
 
+  clearCurrentUserCache();
+
+  // clinics
+  const mappedClinics = (cls||[]).map(c=>({id:c.id,name:c.name,abbr:c.abbr,color:c.color,
+    hourRate:c.hour_rate,hours:c.hours,lump:c.lump,
+    procPct:c.proc_pct,machPct:c.mach_pct,condition:c.condition||''}));
+  appSetItem('clinic_presets', JSON.stringify(mappedClinics));
+
   // shifts
-  const shifts = await sbSelect('shifts','order=shift_date.asc');
   if(shifts?.length){
     const byYM = {};
     shifts.forEach(s=>{
@@ -894,7 +930,6 @@ async function pullFromSupabase(){
       const y = d.getFullYear(), m = d.getMonth(), day = d.getDate();
       const key = sk(y,m);
       if(!byYM[key]) byYM[key]={};
-      const localDay=getData(y,m)[day]||{};
       byYM[key][day]={
         clinicId:s.clinic_id||'', condition:s.condition||'',
         hourRate:s.hour_rate, hours:s.hours,
@@ -902,32 +937,52 @@ async function pullFromSupabase(){
         sitting:s.sitting, procFee:s.proc_fee, machFee:s.mach_fee,
         lump:s.lump, total:s.total,
         patients:s.patients||[], machs:s.machs||[],
-        paidSitting:s.paid_sitting!==undefined?!!s.paid_sitting:!!localDay.paidSitting,
-        paidDf:s.paid_df!==undefined?!!s.paid_df:!!localDay.paidDf
+        paidSitting:!!s.paid_sitting,
+        paidDf:!!s.paid_df
       };
     });
-    Object.entries(byYM).forEach(([key,val])=>localStorage.setItem(key,JSON.stringify(val)));
+    Object.entries(byYM).forEach(([key,val])=>appSetItem(key,JSON.stringify(val)));
   }
 
   // hanging fees
-  const hangs = await sbSelect('hanging_fees');
   if(hangs?.length){
     hangs.forEach(h=>{
       const[y,m]=h.year_month.split('-');
-      localStorage.setItem(skHang(+y,+m), h.amount||'');
+      appSetItem(skHang(+y,+m), h.amount||'');
     });
   }
 
   // user lists
-  const lists = await sbSelect('user_lists');
   if(lists?.length){
     lists.forEach(l=>{
-      localStorage.setItem(l.list_name, JSON.stringify(l.items||[]));
+      appSetItem(l.list_name, JSON.stringify(l.items||[]));
     });
   }
 
   hideSyncBanner();
   renderCalendar();
+}
+
+async function pushLocalCacheToSupabase(){
+  if(!sbReady()) return;
+  const tasks=[];
+  tasks.push(saveClinics(getClinics()));
+  tasks.push(saveProcList(getProcList()));
+  tasks.push(saveMachList(getMachList()));
+  tasks.push(sbUpsert('user_lists',{list_name:'trade_list',items:getTradeList()},'user_id,list_name'));
+  eachAppCacheKey((baseKey)=>{
+    if(baseKey.startsWith('clinic_')){
+      const parts=baseKey.split('_');
+      const y=parseInt(parts[1],10), m=parseInt(parts[2],10);
+      if(Number.isFinite(y)&&Number.isFinite(m)) tasks.push(saveData(y,m,getData(y,m)));
+    }
+    if(baseKey.startsWith('hang_')){
+      const parts=baseKey.split('_');
+      const y=parseInt(parts[1],10), m=parseInt(parts[2],10);
+      if(Number.isFinite(y)&&Number.isFinite(m)) tasks.push(saveHanging(y,m,getHanging(y,m)));
+    }
+  });
+  await Promise.allSettled(tasks);
 }
 
 function showSyncBanner(msg){
@@ -2158,16 +2213,12 @@ function closeBackup(){document.getElementById('backupOverlay').classList.remove
 function handleBackupClick(e){if(e.target===document.getElementById('backupOverlay'))closeBackup();}
 
 function exportData(){
-  /* collect ALL localStorage keys belonging to this app */
+  /* collect current user's cached app data */
   const snapshot={_version:1,_exportedAt:new Date().toISOString(),data:{}};
-  for(let i=0;i<localStorage.length;i++){
-    const k=localStorage.key(i);
-    if(k&&(k.startsWith('clinic_')||k.startsWith('hang_')||
-       ['clinic_presets','proc_list','mach_list','trade_list'].includes(k))){
-      try{snapshot.data[k]=JSON.parse(localStorage.getItem(k));}
-      catch(e){snapshot.data[k]=localStorage.getItem(k);}
-    }
-  }
+  eachAppCacheKey((baseKey)=>{
+    try{snapshot.data[baseKey]=JSON.parse(appGetItem(baseKey));}
+    catch(e){snapshot.data[baseKey]=appGetItem(baseKey);}
+  });
   const blob=new Blob([JSON.stringify(snapshot,null,2)],{type:'application/json'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');
@@ -2181,17 +2232,19 @@ function importData(event){
   const file=event.target.files[0];
   if(!file)return;
   const reader=new FileReader();
-  reader.onload=e=>{
+  reader.onload=async e=>{
     try{
       const snapshot=JSON.parse(e.target.result);
       if(!snapshot.data||typeof snapshot.data!=='object')throw new Error('รูปแบบไฟล์ไม่ถูกต้อง');
       const keys=Object.keys(snapshot.data);
       if(!keys.length)throw new Error('ไม่พบข้อมูลในไฟล์');
-      /* write all keys back */
+      /* write imported keys into this user's cache, then sync to Supabase */
       keys.forEach(k=>{
+        if(!appDataKey(k)) return;
         const v=snapshot.data[k];
-        localStorage.setItem(k,typeof v==='string'?v:JSON.stringify(v));
+        appSetItem(k,typeof v==='string'?v:JSON.stringify(v));
       });
+      await pushLocalCacheToSupabase();
       const status=document.getElementById('importStatus');
       status.textContent=`✅ กู้คืนสำเร็จ ${keys.length} รายการ — กำลัง reload...`;
       status.className='backup-status ok';

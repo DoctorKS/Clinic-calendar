@@ -1,5 +1,8 @@
+create extension if not exists pgcrypto;
+
 create table if not exists public.clinics (
-  id text primary key,
+  id text not null,
+  user_id uuid references auth.users(id) on delete cascade,
   name text not null,
   abbr text,
   color text,
@@ -14,7 +17,9 @@ create table if not exists public.clinics (
 );
 
 create table if not exists public.shifts (
-  shift_date date primary key,
+  id uuid default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete cascade,
+  shift_date date not null,
   clinic_id text,
   condition text,
   hour_rate numeric default 0,
@@ -35,19 +40,24 @@ create table if not exists public.shifts (
 );
 
 create table if not exists public.user_lists (
-  list_name text primary key,
+  id uuid default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete cascade,
+  list_name text not null,
   items jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
 create table if not exists public.hanging_fees (
-  year_month text primary key,
+  id uuid default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete cascade,
+  year_month text not null,
   amount numeric default 0,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
+alter table public.clinics add column if not exists user_id uuid references auth.users(id) on delete cascade;
 alter table public.clinics add column if not exists name text;
 alter table public.clinics add column if not exists abbr text;
 alter table public.clinics add column if not exists color text;
@@ -59,8 +69,9 @@ alter table public.clinics add column if not exists mach_pct text;
 alter table public.clinics add column if not exists condition text;
 alter table public.clinics add column if not exists created_at timestamptz not null default now();
 alter table public.clinics add column if not exists updated_at timestamptz not null default now();
-alter table public.clinics add column if not exists user_id uuid references auth.users(id) on delete cascade;
 
+alter table public.shifts add column if not exists id uuid default gen_random_uuid();
+alter table public.shifts add column if not exists user_id uuid references auth.users(id) on delete cascade;
 alter table public.shifts add column if not exists clinic_id text;
 alter table public.shifts add column if not exists condition text;
 alter table public.shifts add column if not exists hour_rate numeric default 0;
@@ -78,18 +89,18 @@ alter table public.shifts add column if not exists paid_sitting boolean not null
 alter table public.shifts add column if not exists paid_df boolean not null default false;
 alter table public.shifts add column if not exists created_at timestamptz not null default now();
 alter table public.shifts add column if not exists updated_at timestamptz not null default now();
-alter table public.shifts add column if not exists user_id uuid references auth.users(id) on delete cascade;
-create unique index if not exists shifts_shift_date_key on public.shifts (shift_date);
 
+alter table public.user_lists add column if not exists id uuid default gen_random_uuid();
+alter table public.user_lists add column if not exists user_id uuid references auth.users(id) on delete cascade;
 alter table public.user_lists add column if not exists items jsonb not null default '[]'::jsonb;
 alter table public.user_lists add column if not exists created_at timestamptz not null default now();
 alter table public.user_lists add column if not exists updated_at timestamptz not null default now();
-alter table public.user_lists add column if not exists user_id uuid references auth.users(id) on delete cascade;
 
+alter table public.hanging_fees add column if not exists id uuid default gen_random_uuid();
+alter table public.hanging_fees add column if not exists user_id uuid references auth.users(id) on delete cascade;
 alter table public.hanging_fees add column if not exists amount numeric default 0;
 alter table public.hanging_fees add column if not exists created_at timestamptz not null default now();
 alter table public.hanging_fees add column if not exists updated_at timestamptz not null default now();
-alter table public.hanging_fees add column if not exists user_id uuid references auth.users(id) on delete cascade;
 
 update public.clinics set user_id = (select id from auth.users order by created_at asc limit 1)
 where user_id is null and exists (select 1 from auth.users);
@@ -100,61 +111,67 @@ where user_id is null and exists (select 1 from auth.users);
 update public.hanging_fees set user_id = (select id from auth.users order by created_at asc limit 1)
 where user_id is null and exists (select 1 from auth.users);
 
+do $$
+declare r record;
+begin
+  for r in
+    select conrelid::regclass as table_name, conname
+    from pg_constraint
+    where conrelid in ('public.clinics'::regclass,'public.shifts'::regclass,'public.user_lists'::regclass,'public.hanging_fees'::regclass)
+      and contype = 'p'
+  loop
+    execute format('alter table %s drop constraint if exists %I', r.table_name, r.conname);
+  end loop;
+end $$;
+
+drop index if exists public.shifts_shift_date_key;
+drop index if exists public.clinics_user_id_id_key;
+drop index if exists public.shifts_user_id_shift_date_key;
+drop index if exists public.user_lists_user_id_list_name_key;
+drop index if exists public.hanging_fees_user_id_year_month_key;
+
+create unique index clinics_user_id_id_key on public.clinics (user_id, id);
+create unique index shifts_user_id_shift_date_key on public.shifts (user_id, shift_date);
+create unique index user_lists_user_id_list_name_key on public.user_lists (user_id, list_name);
+create unique index hanging_fees_user_id_year_month_key on public.hanging_fees (user_id, year_month);
+
 alter table public.clinics enable row level security;
 alter table public.shifts enable row level security;
 alter table public.user_lists enable row level security;
 alter table public.hanging_fees enable row level security;
 
-drop policy if exists "anon read clinics" on public.clinics;
-drop policy if exists "anon insert clinics" on public.clinics;
-drop policy if exists "anon update clinics" on public.clinics;
-drop policy if exists "anon delete clinics" on public.clinics;
-drop policy if exists "user read clinics" on public.clinics;
-drop policy if exists "user insert clinics" on public.clinics;
-drop policy if exists "user update clinics" on public.clinics;
-drop policy if exists "user delete clinics" on public.clinics;
+alter table public.clinics force row level security;
+alter table public.shifts force row level security;
+alter table public.user_lists force row level security;
+alter table public.hanging_fees force row level security;
+
+do $$
+declare r record;
+begin
+  for r in
+    select schemaname, tablename, policyname
+    from pg_policies
+    where schemaname = 'public'
+      and tablename in ('clinics','shifts','user_lists','hanging_fees')
+  loop
+    execute format('drop policy if exists %I on %I.%I', r.policyname, r.schemaname, r.tablename);
+  end loop;
+end $$;
 
 create policy "user read clinics" on public.clinics for select to authenticated using (auth.uid() = user_id);
 create policy "user insert clinics" on public.clinics for insert to authenticated with check (auth.uid() = user_id);
 create policy "user update clinics" on public.clinics for update to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "user delete clinics" on public.clinics for delete to authenticated using (auth.uid() = user_id);
 
-drop policy if exists "anon read shifts" on public.shifts;
-drop policy if exists "anon insert shifts" on public.shifts;
-drop policy if exists "anon update shifts" on public.shifts;
-drop policy if exists "anon delete shifts" on public.shifts;
-drop policy if exists "user read shifts" on public.shifts;
-drop policy if exists "user insert shifts" on public.shifts;
-drop policy if exists "user update shifts" on public.shifts;
-drop policy if exists "user delete shifts" on public.shifts;
-
 create policy "user read shifts" on public.shifts for select to authenticated using (auth.uid() = user_id);
 create policy "user insert shifts" on public.shifts for insert to authenticated with check (auth.uid() = user_id);
 create policy "user update shifts" on public.shifts for update to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "user delete shifts" on public.shifts for delete to authenticated using (auth.uid() = user_id);
 
-drop policy if exists "anon read user lists" on public.user_lists;
-drop policy if exists "anon insert user lists" on public.user_lists;
-drop policy if exists "anon update user lists" on public.user_lists;
-drop policy if exists "anon delete user lists" on public.user_lists;
-drop policy if exists "user read user lists" on public.user_lists;
-drop policy if exists "user insert user lists" on public.user_lists;
-drop policy if exists "user update user lists" on public.user_lists;
-drop policy if exists "user delete user lists" on public.user_lists;
-
 create policy "user read user lists" on public.user_lists for select to authenticated using (auth.uid() = user_id);
 create policy "user insert user lists" on public.user_lists for insert to authenticated with check (auth.uid() = user_id);
 create policy "user update user lists" on public.user_lists for update to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "user delete user lists" on public.user_lists for delete to authenticated using (auth.uid() = user_id);
-
-drop policy if exists "anon read hanging fees" on public.hanging_fees;
-drop policy if exists "anon insert hanging fees" on public.hanging_fees;
-drop policy if exists "anon update hanging fees" on public.hanging_fees;
-drop policy if exists "anon delete hanging fees" on public.hanging_fees;
-drop policy if exists "user read hanging fees" on public.hanging_fees;
-drop policy if exists "user insert hanging fees" on public.hanging_fees;
-drop policy if exists "user update hanging fees" on public.hanging_fees;
-drop policy if exists "user delete hanging fees" on public.hanging_fees;
 
 create policy "user read hanging fees" on public.hanging_fees for select to authenticated using (auth.uid() = user_id);
 create policy "user insert hanging fees" on public.hanging_fees for insert to authenticated with check (auth.uid() = user_id);
