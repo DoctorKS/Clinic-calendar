@@ -235,6 +235,12 @@ create unique index shifts_user_id_shift_date_key on public.shifts (user_id, shi
 create unique index user_lists_user_id_list_name_key on public.user_lists (user_id, list_name);
 create unique index hanging_fees_user_id_year_month_key on public.hanging_fees (user_id, year_month);
 
+grant usage on schema public to authenticated;
+grant select, insert, update, delete on public.clinics to authenticated;
+grant select, insert, update, delete on public.shifts to authenticated;
+grant select, insert, update, delete on public.user_lists to authenticated;
+grant select, insert, update, delete on public.hanging_fees to authenticated;
+
 alter table public.clinics enable row level security;
 alter table public.shifts enable row level security;
 alter table public.user_lists enable row level security;
