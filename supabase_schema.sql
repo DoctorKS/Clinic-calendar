@@ -102,14 +102,10 @@ alter table public.hanging_fees add column if not exists amount numeric default 
 alter table public.hanging_fees add column if not exists created_at timestamptz not null default now();
 alter table public.hanging_fees add column if not exists updated_at timestamptz not null default now();
 
-update public.clinics set user_id = (select id from auth.users order by created_at asc limit 1)
-where user_id is null and exists (select 1 from auth.users);
-update public.shifts set user_id = (select id from auth.users order by created_at asc limit 1)
-where user_id is null and exists (select 1 from auth.users);
-update public.user_lists set user_id = (select id from auth.users order by created_at asc limit 1)
-where user_id is null and exists (select 1 from auth.users);
-update public.hanging_fees set user_id = (select id from auth.users order by created_at asc limit 1)
-where user_id is null and exists (select 1 from auth.users);
+alter table public.clinics disable row level security;
+alter table public.shifts disable row level security;
+alter table public.user_lists disable row level security;
+alter table public.hanging_fees disable row level security;
 
 do $$
 declare r record;
@@ -118,7 +114,7 @@ begin
     select conrelid::regclass as table_name, conname
     from pg_constraint
     where conrelid in ('public.clinics'::regclass,'public.shifts'::regclass,'public.user_lists'::regclass,'public.hanging_fees'::regclass)
-      and contype = 'p'
+      and contype in ('p','u')
   loop
     execute format('alter table %s drop constraint if exists %I', r.table_name, r.conname);
   end loop;
@@ -129,6 +125,110 @@ drop index if exists public.clinics_user_id_id_key;
 drop index if exists public.shifts_user_id_shift_date_key;
 drop index if exists public.user_lists_user_id_list_name_key;
 drop index if exists public.hanging_fees_user_id_year_month_key;
+
+do $$
+declare owner_id uuid;
+begin
+  select id into owner_id from auth.users order by created_at asc limit 1;
+
+  if owner_id is null and (
+    exists (select 1 from public.clinics where user_id is null) or
+    exists (select 1 from public.shifts where user_id is null) or
+    exists (select 1 from public.user_lists where user_id is null) or
+    exists (select 1 from public.hanging_fees where user_id is null)
+  ) then
+    raise exception 'Cannot assign old rows because Supabase Auth has no users. Create/login one user first, then rerun this schema.';
+  end if;
+
+  update public.clinics set user_id = owner_id where user_id is null;
+  update public.shifts set user_id = owner_id where user_id is null;
+  update public.user_lists set user_id = owner_id where user_id is null;
+  update public.hanging_fees set user_id = owner_id where user_id is null;
+end $$;
+
+drop table if exists pg_temp._cc_user_list_merge;
+create temp table _cc_user_list_merge as
+select user_id, list_name, jsonb_agg(distinct item.value) as items
+from public.user_lists ul
+left join lateral jsonb_array_elements(coalesce(ul.items,'[]'::jsonb)) as item(value) on true
+where ul.user_id is not null
+group by user_id, list_name;
+
+drop table if exists pg_temp._cc_user_list_keep;
+create temp table _cc_user_list_keep as
+select distinct on (user_id, list_name) ctid as keep_ctid, user_id, list_name
+from public.user_lists
+where user_id is not null
+order by user_id, list_name, updated_at desc nulls last, created_at desc nulls last, ctid desc;
+
+with ranked as (
+  select ctid, row_number() over (
+    partition by user_id, id
+    order by updated_at desc nulls last, created_at desc nulls last, ctid desc
+  ) rn
+  from public.clinics
+  where user_id is not null
+)
+delete from public.clinics c
+using ranked r
+where c.ctid = r.ctid and r.rn > 1;
+
+with ranked as (
+  select ctid, row_number() over (
+    partition by user_id, shift_date
+    order by updated_at desc nulls last, created_at desc nulls last, ctid desc
+  ) rn
+  from public.shifts
+  where user_id is not null
+)
+delete from public.shifts s
+using ranked r
+where s.ctid = r.ctid and r.rn > 1;
+
+delete from public.user_lists ul
+using pg_temp._cc_user_list_keep k
+where ul.user_id = k.user_id
+  and ul.list_name = k.list_name
+  and ul.ctid <> k.keep_ctid;
+
+update public.user_lists ul
+set items = coalesce(m.items,'[]'::jsonb)
+from pg_temp._cc_user_list_merge m
+where ul.user_id = m.user_id and ul.list_name = m.list_name;
+
+with ranked as (
+  select ctid, row_number() over (
+    partition by user_id, year_month
+    order by updated_at desc nulls last, created_at desc nulls last, ctid desc
+  ) rn
+  from public.hanging_fees
+  where user_id is not null
+)
+delete from public.hanging_fees h
+using ranked r
+where h.ctid = r.ctid and r.rn > 1;
+
+do $$
+declare dup text;
+begin
+  if exists (select 1 from public.user_lists where user_id is null) then
+    raise exception 'user_lists still has rows with user_id null. Create/login one Supabase Auth user first, then rerun this schema.';
+  end if;
+
+  select string_agg(user_id::text || ':' || list_name || '=' || cnt::text, ', ')
+  into dup
+  from (
+    select user_id, list_name, count(*) cnt
+    from public.user_lists
+    where user_id is not null
+    group by user_id, list_name
+    having count(*) > 1
+  ) d;
+
+  if dup is not null then
+    raise exception 'Duplicate user_lists remain after cleanup: %', dup;
+  end if;
+end $$;
 
 create unique index clinics_user_id_id_key on public.clinics (user_id, id);
 create unique index shifts_user_id_shift_date_key on public.shifts (user_id, shift_date);
