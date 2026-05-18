@@ -507,9 +507,6 @@ body.auth-locked .auth-overlay{display:flex}
     <div id="patientContainer"></div>
     <button class="add-patient-btn" onclick="addPatient()">＋ เพิ่มคนไข้คนถัดไป</button>
 
-    <div class="proc-section-title" style="margin-top:4px">🤖 เครื่อง</div>
-    <div id="machRowsContainer"></div>
-    <button class="add-row-btn" onclick="addMachRow()">＋ เพิ่มเครื่อง</button>
   </div>
 
   <div class="form-body">
@@ -726,10 +723,10 @@ body.auth-locked .auth-overlay{display:flex}
 /* ===================================================
    DATA MODEL
    patients = [
-     { procs: [{name, tradeName, amount}, ...], coursePrice: '' },
+     { procs: [{name, tradeName, amount}, ...], machs: [{name, price, amount}, ...], coursePrice: '' },
      ...
    ]
-   machs    = [{name, price}, ...]
+   machs    = flattened patient machines for legacy/report compatibility
    =================================================== */
 
 const MONTHS_TH=['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
@@ -741,7 +738,7 @@ const DEFAULT_MACHS=['Ultraformer','Oligio'];
 
 let today=new Date(), curYear=today.getFullYear(), curMonth=today.getMonth(), selectedDay=null;
 let selColor=PALETTE[3], editingClinicId=null, reportChartMode='proc';
-let patients=[], machRows=[];
+let patients=[];
 
 /* =====================================================
    SUPABASE CONFIG — ใส่ค่าจาก Project Settings > API
@@ -1195,15 +1192,22 @@ async function onHangingInput(){
 }
 
 /* ===== PATIENT / PROCEDURE DATA HELPERS ===== */
-function newProc(){return{name:'',tradeName:'',amount:'',specialDf:false,specialDfPct:'',specialDfPrice:'',specialDfFixed:''};}
-function newPatient(){return{procs:[newProc()],coursePrice:''};}
 function newMach(){return{name:'',price:'',amount:''};}
-
-/* Flush all live DOM values back into patients[] and machRows[] */
+function newProc(){return{name:'',tradeName:'',amount:'',specialDf:false,specialDfPct:'',specialDfPrice:'',specialDfFixed:''};}
+function newPatient(){return{procs:[newProc()],machs:[],coursePrice:''};}
+function normalizePatient(pat){
+  return{
+    ...pat,
+    procs:(pat.procs&&pat.procs.length)?pat.procs:[newProc()],
+    machs:pat.machs?pat.machs.map(r=>({name:r.name||'',price:r.price||'',amount:r.amount||''})):[]
+  };
+}
+/* Flush all live DOM values back into patients[] */
 function flushAll(){
   patients.forEach((pat,pi)=>{
     const cp=document.getElementById('cp_'+pi);
     if(cp) pat.coursePrice=cp.value;
+    if(!pat.machs) pat.machs=[];
     pat.procs.forEach((pr,si)=>{
       const n=document.getElementById(`pn_${pi}_${si}`);
       const t=document.getElementById(`pt_${pi}_${si}`);
@@ -1220,14 +1224,14 @@ function flushAll(){
       if(sprice) pr.specialDfPrice=sprice.value;
       if(sfix) pr.specialDfFixed=sfix.value;
     });
-  });
-  machRows.forEach((r,i)=>{
-    const n=document.getElementById('mn_'+i);
-    const p=document.getElementById('mp_'+i);
-    const a=document.getElementById('ma_'+i);
-    if(n) r.name=n.value;
-    if(p) r.price=p.value;
-    if(a) r.amount=a.value;
+    pat.machs.forEach((r,mi)=>{
+      const n=document.getElementById(`mn_${pi}_${mi}`);
+      const p=document.getElementById(`mp_${pi}_${mi}`);
+      const a=document.getElementById(`ma_${pi}_${mi}`);
+      if(n) r.name=n.value;
+      if(p) r.price=p.value;
+      if(a) r.amount=a.value;
+    });
   });
 }
 
@@ -1236,6 +1240,7 @@ function renderPatients(){
   const container=document.getElementById('patientContainer');
   container.innerHTML='';
   patients.forEach((pat,pi)=>{
+    pat.machs=pat.machs||[];
     const card=document.createElement('div');
     card.className='patient-card open';
     card.id='patCard_'+pi;
@@ -1275,6 +1280,24 @@ function renderPatients(){
       renderPatients();
     };
 
+    /* machine rows */
+    const machContainer=document.createElement('div');
+    machContainer.id='machCon_'+pi;
+    pat.machs.forEach((row,mi)=>{
+      machContainer.appendChild(buildPatientMach(pi,mi,row));
+    });
+
+    const addMachBtn=document.createElement('button');
+    addMachBtn.className='add-sub-btn';
+    addMachBtn.textContent=`＋ เพิ่มเครื่องที่ ${pat.machs.length+1}`;
+    addMachBtn.onclick=()=>{
+      flushAll();
+      patients[pi].machs=patients[pi].machs||[];
+      patients[pi].machs.push(newMach());
+      renderPatients();
+      calcPreview();
+    };
+
     /* course price */
     const cpWrap=document.createElement('div');
     cpWrap.className='course-price-wrap';
@@ -1290,6 +1313,8 @@ function renderPatients(){
 
     body.appendChild(subContainer);
     body.appendChild(addProcBtn);
+    body.appendChild(machContainer);
+    body.appendChild(addMachBtn);
     body.appendChild(cpWrap);
 
     card.appendChild(hdr);
@@ -1499,45 +1524,51 @@ function deleteSubProc(pi,si,e){
   calcPreview();
 }
 
-/* ===== MACHINE ROWS ===== */
-function renderMachRows(){
-  const c=document.getElementById('machRowsContainer');c.innerHTML='';
-  machRows.forEach((row,i)=>{
-    const card=document.createElement('div');card.className='machine-row-card';
-    card.innerHTML=`
+/* ===== PATIENT MACHINE ROWS ===== */
+function buildPatientMach(pi,mi,row){
+  const card=document.createElement('div');
+  card.className='machine-row-card';
+  card.innerHTML=`
       <div class="machine-row-header">
-        <span class="machine-row-num">เครื่อง ${i+1}</span>
-        <button class="proc-row-del" onclick="delMachRow(${i})">✕</button>
+        <span class="machine-row-num">เครื่อง ${mi+1}</span>
+        <button class="proc-row-del" onclick="delPatientMach(${pi},${mi},event)">✕</button>
       </div>
       <div style="position:relative;margin-bottom:6px">
-        <input class="pick-input" id="mn_${i}" placeholder="เลือกชื่อเครื่อง..."
+        <input class="pick-input" id="mn_${pi}_${mi}" placeholder="เลือกชื่อเครื่อง..."
           value="${row.name||''}" readonly
-          onclick="openProcPicker('mach',0,${i})"
+          onclick="openProcPicker('mach',${pi},${mi})"
           style="background:#f0f4ff;border-color:#c5d0f0">
         <span class="pick-arrow">▼</span>
       </div>
       <div class="mach-price-amount-row">
         <div class="proc-price-wrap" style="flex:1.4">
-          <input class="proc-price-input" id="mp_${i}" placeholder="ราคาค่าเครื่อง"
+          <input class="proc-price-input" id="mp_${pi}_${mi}" placeholder="ราคาค่าเครื่อง"
             type="number" inputmode="decimal"
             value="${row.price||''}"
-            oninput="if(machRows[${i}])machRows[${i}].price=this.value;calcPreview()">
+            oninput="syncPatientMach(${pi},${mi},'price',this.value);calcPreview()">
           <span class="proc-price-suffix">บาท</span>
         </div>
         <div style="position:relative;flex:1">
-          <input class="proc-price-input" id="ma_${i}" placeholder="ปริมาณ / ช็อต"
+          <input class="proc-price-input" id="ma_${pi}_${mi}" placeholder="ปริมาณ / ช็อต"
             type="number" inputmode="decimal" min="0" step="any"
             value="${row.amount||''}"
-            oninput="if(machRows[${i}])machRows[${i}].amount=this.value;"
+            oninput="syncPatientMach(${pi},${mi},'amount',this.value)"
             style="border-color:#c5d0f0;padding-right:34px">
           <span class="proc-price-suffix">หน่วย</span>
         </div>
       </div>`;
-    c.appendChild(card);
-  });
+  return card;
 }
-function addMachRow(){flushAll();machRows.push(newMach());renderMachRows();}
-function delMachRow(i){flushAll();machRows.splice(i,1);renderMachRows();calcPreview();}
+function syncPatientMach(pi,mi,field,val){
+  if(patients[pi]&&patients[pi].machs&&patients[pi].machs[mi]) patients[pi].machs[mi][field]=val;
+}
+function delPatientMach(pi,mi,e){
+  e.stopPropagation();
+  flushAll();
+  if(patients[pi]&&patients[pi].machs) patients[pi].machs.splice(mi,1);
+  renderPatients();
+  calcPreview();
+}
 
 /* ===== PICKER ===== */
 let pickerType='proc', pickerPatIdx=0, pickerSubIdx=0;
@@ -1574,11 +1605,12 @@ function selectPickerItem(name){
     if(patients[pickerPatIdx]&&patients[pickerPatIdx].procs[pickerSubIdx]){
       patients[pickerPatIdx].procs[pickerSubIdx].name=name;
     }
-    renderPatients();
   } else {
-    if(machRows[pickerSubIdx]) machRows[pickerSubIdx].name=name;
-    renderMachRows();
+    if(patients[pickerPatIdx]&&patients[pickerPatIdx].machs&&patients[pickerPatIdx].machs[pickerSubIdx]){
+      patients[pickerPatIdx].machs[pickerSubIdx].name=name;
+    }
   }
+  renderPatients();
   calcPreview();
   closePicker();
 }
@@ -1645,17 +1677,17 @@ function openSheet(day){
   }
   /* load patients — support both new and legacy format */
   if(dd.patients&&dd.patients.length){
-    patients=JSON.parse(JSON.stringify(dd.patients));
+    patients=JSON.parse(JSON.stringify(dd.patients)).map(normalizePatient);
   } else if(dd.procs&&dd.procs.length){
     /* migrate legacy: each old proc row → patient with 1 proc (no coursePrice) */
-    patients=dd.procs.map(p=>({procs:[{name:p.name||'',tradeName:p.tradeName||'',amount:p.amount||''}],coursePrice:''}));
+    patients=dd.procs.map(p=>normalizePatient({procs:[{name:p.name||'',tradeName:p.tradeName||'',amount:p.amount||''}],coursePrice:''}));
   } else {
     patients=[newPatient()];
   }
-  machRows=dd.machs?JSON.parse(JSON.stringify(dd.machs.map(r=>({name:r.name||'',price:r.price||'',amount:r.amount||''})))):[newMach()];
-  if(!machRows.length) machRows=[newMach()];
+  const legacyMachs=dd.machs?JSON.parse(JSON.stringify(dd.machs.map(r=>({name:r.name||'',price:r.price||'',amount:r.amount||''})))):[];
+  const hasPatientMachs=patients.some(pat=>(pat.machs||[]).length);
+  if(legacyMachs.length&&!hasPatientMachs) patients[0].machs=legacyMachs;
   renderPatients();
-  renderMachRows();
   document.getElementById('btnClear').style.display=dd.total?'block':'none';
   calcPreview();
   document.getElementById('overlay').classList.add('open');
@@ -1699,7 +1731,7 @@ function calcPreview(){
     procFee+=normalBase*(procPct/100);
   });
   let machFee=0;
-  machRows.forEach(r=>{machFee+=(parseFloat(r.price)||0)*(machPct/100);});
+  patients.forEach(pat=>(pat.machs||[]).forEach(r=>{machFee+=(parseFloat(r.price)||0)*(machPct/100);}));
 
   const totalProcFee=procFee+specialDfFee;
   const earned=sitting+totalProcFee+machFee;
@@ -1755,7 +1787,10 @@ async function saveDay(){
   const sitting=hourRate*hours;
   let procFee=0;
   let specialDfFee=0;
-  const savedPats=patients.filter(pat=>pat.procs.some(p=>p.name)||pat.coursePrice).map(pat=>{
+  let machFee=0;
+  const savedPats=patients.filter(pat=>
+    pat.procs.some(p=>p.name)||pat.coursePrice||(pat.machs||[]).some(r=>r.name||r.price||r.amount)
+  ).map(pat=>{
     const coursePrice=parseFloat(pat.coursePrice)||0;
     let specialPriceSum=0;
     const procs=pat.procs.map(pr=>{
@@ -1773,14 +1808,14 @@ async function saveDay(){
     const normalBase=Math.max(0,coursePrice-specialPriceSum);
     const fee=normalBase*(procPct/100);
     procFee+=fee;
-    return{...pat,procs,fee};
+    const machs=(pat.machs||[]).filter(r=>r.name||r.price||r.amount).map(r=>{
+      const machRowFee=(parseFloat(r.price)||0)*(machPct/100);
+      machFee+=machRowFee;
+      return{name:r.name||'',price:r.price||'',amount:r.amount||'',fee:machRowFee};
+    });
+    return{...pat,procs,machs,fee};
   });
-  let machFee=0;
-  const savedMachs=machRows.filter(r=>r.name||r.price||r.amount).map(r=>{
-    const fee=(parseFloat(r.price)||0)*(machPct/100);
-    machFee+=fee;
-    return{name:r.name||'',price:r.price||'',amount:r.amount||'',fee};
-  });
+  const savedMachs=savedPats.flatMap(pat=>pat.machs||[]);
   const earned=sitting+procFee+specialDfFee+machFee;
   let total;
   if(condition==='guarantee'&&lump>0){
