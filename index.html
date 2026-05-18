@@ -223,7 +223,7 @@ body{font-family:'Sarabun',sans-serif;background:var(--bg);color:var(--text);min
 .add-patient-btn:active{border-color:var(--primary-mid);color:var(--primary-mid)}
 
 /* Machine rows */
-.machine-row-card{background:#f0f4ff;border:1.5px solid #c5d0f0;border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:10px}
+.machine-row-card{background:#e8f0ff;border:1.5px solid #9bb7ff;border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:10px}
 .machine-row-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
 .machine-row-num{font-size:11px;font-weight:700;color:#3a5bd6;background:#dde5ff;border-radius:12px;padding:2px 8px}
 .proc-row-del{background:none;border:none;font-size:16px;cursor:pointer;color:#ccc;padding:2px 4px;border-radius:6px}
@@ -236,6 +236,8 @@ body{font-family:'Sarabun',sans-serif;background:var(--bg);color:var(--text);min
 .proc-price-suffix{position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:11px;color:var(--text-muted);pointer-events:none}
 .add-row-btn{width:100%;padding:10px;border:2px dashed var(--border);border-radius:var(--radius-sm);background:transparent;font-size:13px;font-weight:600;color:var(--text-muted);font-family:'Sarabun',sans-serif;cursor:pointer;margin-bottom:10px;transition:border-color .15s,color .15s}
 .add-row-btn:active{border-color:var(--primary-mid);color:var(--primary-mid)}
+.add-mach-btn{background:#e8f0ff;border-color:#9bb7ff;color:#1d4ed8}
+.add-mach-btn:active{border-color:#3a5bd6;color:#1f3fb5}
 
 /* PICKER */
 .picker-overlay{display:none;position:fixed;inset:0;background:rgba(15,30,25,.5);z-index:400;align-items:flex-end;justify-content:center}
@@ -1288,7 +1290,7 @@ function renderPatients(){
     });
 
     const addMachBtn=document.createElement('button');
-    addMachBtn.className='add-sub-btn';
+    addMachBtn.className='add-sub-btn add-mach-btn';
     addMachBtn.textContent=`＋ เพิ่มเครื่องที่ ${pat.machs.length+1}`;
     addMachBtn.onclick=()=>{
       flushAll();
@@ -1537,7 +1539,7 @@ function buildPatientMach(pi,mi,row){
         <input class="pick-input" id="mn_${pi}_${mi}" placeholder="เลือกชื่อเครื่อง..."
           value="${row.name||''}" readonly
           onclick="openProcPicker('mach',${pi},${mi})"
-          style="background:#f0f4ff;border-color:#c5d0f0">
+          style="background:#e8f0ff;border-color:#9bb7ff">
         <span class="pick-arrow">▼</span>
       </div>
       <div class="mach-price-amount-row">
@@ -1553,7 +1555,7 @@ function buildPatientMach(pi,mi,row){
             type="number" inputmode="decimal" min="0" step="any"
             value="${row.amount||''}"
             oninput="syncPatientMach(${pi},${mi},'amount',this.value)"
-            style="border-color:#c5d0f0;padding-right:34px">
+            style="border-color:#9bb7ff;padding-right:34px">
           <span class="proc-price-suffix">หน่วย</span>
         </div>
       </div>`;
