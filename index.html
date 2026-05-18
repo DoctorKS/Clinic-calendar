@@ -854,7 +854,13 @@ async function saveData(y,m,d){
       paid_sitting: !!dd.paidSitting, paid_df: !!dd.paidDf
     },'user_id,shift_date');
   });
-  await Promise.allSettled(promises.filter(Boolean));
+  const results=await Promise.allSettled(promises.filter(Boolean));
+  const failed=results.some(r=>r.status==='rejected'||r.value===null);
+  if(failed){
+    showSyncBanner('บันทึกในเครื่องแล้ว แต่ sync ขึ้น Supabase ไม่สำเร็จ กรุณาลองกดบันทึกอีกครั้ง');
+    return false;
+  }
+  return true;
 }
 
 const getClinics=()=>{try{return JSON.parse(appGetItem('clinic_presets')||'[]')}catch(e){return[]}};
@@ -1203,6 +1209,12 @@ function normalizePatient(pat){
     procs:(pat.procs&&pat.procs.length)?pat.procs:[newProc()],
     machs:pat.machs?pat.machs.map(r=>({name:r.name||'',price:r.price||'',amount:r.amount||''})):[]
   };
+}
+function hasProcData(pr){
+  return !!(pr&&(pr.name||pr.tradeName||pr.amount||pr.specialDf||pr.specialDfPct||pr.specialDfPrice||pr.specialDfFixed));
+}
+function hasPatientData(pat){
+  return !!(pat&&(pat.coursePrice||(pat.procs||[]).some(hasProcData)||(pat.machs||[]).some(r=>r.name||r.price||r.amount)));
 }
 /* Flush all live DOM values back into patients[] */
 function flushAll(){
@@ -1790,9 +1802,7 @@ async function saveDay(){
   let procFee=0;
   let specialDfFee=0;
   let machFee=0;
-  const savedPats=patients.filter(pat=>
-    pat.procs.some(p=>p.name)||pat.coursePrice||(pat.machs||[]).some(r=>r.name||r.price||r.amount)
-  ).map(pat=>{
+  const savedPats=patients.filter(hasPatientData).map(pat=>{
     const coursePrice=parseFloat(pat.coursePrice)||0;
     let specialPriceSum=0;
     const procs=pat.procs.map(pr=>{
