@@ -1,0 +1,4 @@
+# Claude Code: version-control skills, but never commit local worktrees
+# or machine-local settings.
+.claude/worktrees/
+.claude/settings.local.json

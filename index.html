@@ -416,7 +416,7 @@ body.auth-locked .auth-overlay{display:flex}
     <h1>🏥 เวรคลินิก</h1>
     <div class="hdr-btns">
       <button class="add-clinic-btn header-refresh-btn" id="headerSyncBtn" type="button" title="Sync ข้อมูลในเครื่องขึ้น Supabase" aria-label="Sync ข้อมูลในเครื่องขึ้น Supabase" onclick="syncLocalToSupabase()">⬆</button>
-      <button class="add-clinic-btn header-refresh-btn" id="headerRefreshBtn" type="button" title="Refresh จาก Supabase" aria-label="Refresh จาก Supabase" onclick="refreshFromCloud()">↻</button>
+      <button class="add-clinic-btn header-refresh-btn" id="headerRefreshBtn" type="button" title="โหลดแอปเวอร์ชันล่าสุดใหม่" aria-label="โหลดแอปเวอร์ชันล่าสุดใหม่" onclick="reloadApp()">↻</button>
       <button class="add-clinic-btn" onclick="openBackup()">💾 Backup</button>
       <button class="add-clinic-btn" onclick="openClinicMgr()">＋ คลินิก</button>
       <button class="add-clinic-btn" onclick="logoutLocalAuth()">ล็อกออก</button>
@@ -2412,31 +2412,19 @@ async function syncLocalToSupabase(){
   }
 }
 
-async function refreshFromCloud(){
-  const btn=document.getElementById('headerRefreshBtn');
-  if(!sbReady()){
-    showSyncBanner('ยังไม่ได้เข้าสู่ระบบ Supabase');
-    setTimeout(hideSyncBanner,1800);
+function reloadApp(){
+  /* The app is a single static index.html with no service worker, so the
+     browser (and iOS home-screen webview) can serve a stale cached copy.
+     Reload with a fresh query string to force fetching the latest deploy.
+     On load the app re-pulls from Supabase, so this also refreshes data. */
+  if(!confirm('โหลดแอปเวอร์ชันล่าสุดใหม่?\nข้อมูลที่ยังไม่ได้ Sync ขึ้น Supabase จะหาย — ถ้ามีการแก้ไขค้างอยู่ ให้กด ⬆ Sync ก่อน'))
     return;
-  }
+  const btn=document.getElementById('headerRefreshBtn');
   if(btn){
     btn.disabled=true;
     btn.textContent='...';
   }
-  try{
-    await pullFromSupabase();
-    updateSummary();
-    showSyncBanner('Refresh จาก Supabase สำเร็จ');
-    setTimeout(hideSyncBanner,1200);
-  }catch(e){
-    showSyncBanner('Refresh ไม่สำเร็จ: '+(e.message||'Supabase sync failed'));
-    setTimeout(hideSyncBanner,2600);
-  }finally{
-    if(btn){
-      btn.disabled=false;
-      btn.textContent='↻';
-    }
-  }
+  location.replace(location.pathname+'?v='+Date.now());
 }
 (function setHeaderH(){
   const hdr=document.querySelector('.header');
