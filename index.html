@@ -757,6 +757,7 @@ const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
 let _sbSession = null; // optional { access_token, user }
 let _recoveryAccessToken = null;
 let _recoveryRefreshToken = null;
+let appMemoryStore = {};
 
 const sbReady = () => !!(SB_URL && SB_KEY && _sbSession);
 const sbAuthToken = () => (_sbSession&&_sbSession.access_token)||SB_KEY;
@@ -764,25 +765,15 @@ const sbUserId = () => _sbSession?.user?.id||null;
 const withUser = row => ({...row,user_id:sbUserId()});
 const appDataKey = key => key&&(key.startsWith('clinic_')||key.startsWith('hang_')||
   ['clinic_presets','proc_list','mach_list','trade_list'].includes(key));
-const appStorageKey = key => sbUserId()?`cc_${sbUserId()}_${key}`:key;
-const appGetItem = key => localStorage.getItem(appStorageKey(key));
-const appSetItem = (key,val) => localStorage.setItem(appStorageKey(key),val);
-const appRemoveItem = key => localStorage.removeItem(appStorageKey(key));
+const appGetItem = key => Object.prototype.hasOwnProperty.call(appMemoryStore,key)?appMemoryStore[key]:null;
+const appSetItem = (key,val) => {appMemoryStore[key]=String(val);};
+const appRemoveItem = key => {delete appMemoryStore[key];};
 const sbUserFilter = () => sbUserId()?'user_id=eq.'+encodeURIComponent(sbUserId()):'';
 function eachAppCacheKey(cb){
-  const uid=sbUserId();
-  const prefix=uid?`cc_${uid}_`:'';
-  for(let i=0;i<localStorage.length;i++){
-    const storedKey=localStorage.key(i);
-    if(!storedKey) continue;
-    const baseKey=prefix?(storedKey.startsWith(prefix)?storedKey.slice(prefix.length):''):storedKey;
-    if(appDataKey(baseKey)) cb(baseKey,storedKey);
-  }
+  Object.keys(appMemoryStore).forEach(key=>{if(appDataKey(key)) cb(key,key);});
 }
 function clearCurrentUserCache(){
-  const keys=[];
-  eachAppCacheKey((base,stored)=>keys.push(stored));
-  keys.forEach(k=>localStorage.removeItem(k));
+  appMemoryStore={};
 }
 
 async function sbFetch(path, opts={}){
@@ -833,9 +824,8 @@ function sbLoadSession(){
 }
 
 /* =====================================================
-   STORAGE HELPERS — localStorage + Supabase sync
-   localStorage = instant read (cache)
-   Supabase = background write (durable)
+   STORAGE HELPERS — in-memory app state + Supabase
+   App data is not persisted in localStorage; Supabase is the durable source.
    ===================================================== */
 const sk=(y,m)=>`clinic_${y}_${m}`;
 const getData=(y,m)=>{try{return JSON.parse(appGetItem(sk(y,m))||'{}')}catch(e){return{}}};
@@ -906,7 +896,7 @@ async function saveHanging(y,m,val){
 }
 
 /* =====================================================
-   PULL FROM SUPABASE — sync cloud → localStorage
+   PULL FROM SUPABASE — sync cloud → in-memory app state
    called once after login
    ===================================================== */
 async function pullFromSupabase(){
@@ -969,28 +959,6 @@ async function pullFromSupabase(){
 
   hideSyncBanner();
   renderCalendar();
-}
-
-async function pushLocalCacheToSupabase(){
-  if(!sbReady()) return;
-  const tasks=[];
-  tasks.push(saveClinics(getClinics()));
-  tasks.push(saveProcList(getProcList()));
-  tasks.push(saveMachList(getMachList()));
-  tasks.push(sbUpsert('user_lists',{list_name:'trade_list',items:getTradeList()},'user_id,list_name'));
-  eachAppCacheKey((baseKey)=>{
-    if(baseKey.startsWith('clinic_')){
-      const parts=baseKey.split('_');
-      const y=parseInt(parts[1],10), m=parseInt(parts[2],10);
-      if(Number.isFinite(y)&&Number.isFinite(m)) tasks.push(saveData(y,m,getData(y,m)));
-    }
-    if(baseKey.startsWith('hang_')){
-      const parts=baseKey.split('_');
-      const y=parseInt(parts[1],10), m=parseInt(parts[2],10);
-      if(Number.isFinite(y)&&Number.isFinite(m)) tasks.push(saveHanging(y,m,getHanging(y,m)));
-    }
-  });
-  await Promise.allSettled(tasks);
 }
 
 function showSyncBanner(msg){
@@ -2263,7 +2231,7 @@ function closeBackup(){document.getElementById('backupOverlay').classList.remove
 function handleBackupClick(e){if(e.target===document.getElementById('backupOverlay'))closeBackup();}
 
 function exportData(){
-  /* collect current user's cached app data */
+  /* collect current in-memory app data */
   const snapshot={_version:1,_exportedAt:new Date().toISOString(),data:{}};
   eachAppCacheKey((baseKey)=>{
     try{snapshot.data[baseKey]=JSON.parse(appGetItem(baseKey));}
@@ -2288,17 +2256,16 @@ function importData(event){
       if(!snapshot.data||typeof snapshot.data!=='object')throw new Error('รูปแบบไฟล์ไม่ถูกต้อง');
       const keys=Object.keys(snapshot.data);
       if(!keys.length)throw new Error('ไม่พบข้อมูลในไฟล์');
-      /* write imported keys into this user's cache, then sync to Supabase */
+      /* Load imported keys into memory only. Database remains the source of truth. */
       keys.forEach(k=>{
         if(!appDataKey(k)) return;
         const v=snapshot.data[k];
         appSetItem(k,typeof v==='string'?v:JSON.stringify(v));
       });
-      await pushLocalCacheToSupabase();
       const status=document.getElementById('importStatus');
-      status.textContent=`✅ กู้คืนสำเร็จ ${keys.length} รายการ — กำลัง reload...`;
+      status.textContent=`✅ โหลดไฟล์สำเร็จ ${keys.length} รายการ — ยังไม่ได้อัปโหลดเข้า Supabase`;
       status.className='backup-status ok';
-      setTimeout(()=>location.reload(),1200);
+      renderCalendar();
     }catch(err){
       const status=document.getElementById('importStatus');
       status.textContent='❌ ไฟล์ไม่ถูกต้อง: '+err.message;
