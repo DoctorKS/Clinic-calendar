@@ -415,8 +415,8 @@ body.auth-locked .auth-overlay{display:flex}
   <div class="header-top">
     <h1>🏥 เวรคลินิก</h1>
     <div class="hdr-btns">
-      <button class="add-clinic-btn" onclick="openBackup()">💾 Backup</button>
       <button class="add-clinic-btn header-refresh-btn" id="headerRefreshBtn" type="button" title="Refresh จาก Supabase" aria-label="Refresh จาก Supabase" onclick="refreshFromCloud()">↻</button>
+      <button class="add-clinic-btn" onclick="openBackup()">💾 Backup</button>
       <button class="add-clinic-btn" onclick="openClinicMgr()">＋ คลินิก</button>
       <button class="add-clinic-btn" onclick="logoutLocalAuth()">ล็อกออก</button>
     </div>
@@ -789,8 +789,10 @@ async function sbFetch(path, opts={}){
     }
   });
   if(!res.ok){
-    try{console.warn('Supabase error',res.status,path,await res.text());}catch(e){}
-    return null;
+    let detail='';
+    try{detail=await res.text();}catch(e){}
+    console.warn('Supabase error',res.status,path,detail);
+    throw new Error('Supabase '+res.status);
   }
   const text = await res.text();
   return text ? JSON.parse(text) : null;
@@ -832,7 +834,10 @@ const getData=(y,m)=>{try{return JSON.parse(appGetItem(sk(y,m))||'{}')}catch(e){
 
 async function saveData(y,m,d){
   appSetItem(sk(y,m), JSON.stringify(d));
-  if(!sbReady()) return;
+  if(!sbReady()){
+    showSyncBanner('⚠️ ยังไม่ได้เข้าสู่ระบบ Supabase — ข้อมูลยังไม่ถูกบันทึกถาวร');
+    return false;
+  }
   // sync each day entry to Supabase shifts table
   const promises = Object.entries(d).map(([day, dd])=>{
     if(!dd||!dd.total) return;
@@ -848,35 +853,49 @@ async function saveData(y,m,d){
     },'user_id,shift_date');
   });
   const results=await Promise.allSettled(promises.filter(Boolean));
-  const failed=results.some(r=>r.status==='rejected'||r.value===null);
+  const failed=results.some(r=>r.status==='rejected');
   if(failed){
-    showSyncBanner('บันทึกในเครื่องแล้ว แต่ sync ขึ้น Supabase ไม่สำเร็จ กรุณาลองกดบันทึกอีกครั้ง');
+    showSyncBanner('❌ บันทึกขึ้น Supabase ไม่สำเร็จ — กรุณาลองกดบันทึกอีกครั้ง');
     return false;
   }
+  hideSyncBanner();
   return true;
 }
 
 const getClinics=()=>{try{return JSON.parse(appGetItem('clinic_presets')||'[]')}catch(e){return[]}};
 async function saveClinics(arr){
   appSetItem('clinic_presets', JSON.stringify(arr));
-  if(!sbReady()) return;
-  await Promise.allSettled(arr.map(cl=>sbUpsert('clinics',{
+  if(!sbReady()){
+    showSyncBanner('⚠️ ยังไม่ได้เข้าสู่ระบบ Supabase — การตั้งค่าคลินิกยังไม่ถูกบันทึกถาวร');
+    return false;
+  }
+  const results=await Promise.allSettled(arr.map(cl=>sbUpsert('clinics',{
     id:cl.id, name:cl.name, abbr:cl.abbr, color:cl.color,
     hour_rate:cl.hourRate||'', hours:cl.hours||'', lump:cl.lump||'',
     proc_pct:cl.procPct||'', mach_pct:cl.machPct||'', condition:cl.condition||''
   },'user_id,id')));
+  if(results.some(r=>r.status==='rejected')){
+    showSyncBanner('❌ บันทึกคลินิกขึ้น Supabase ไม่สำเร็จ — กรุณาลองอีกครั้ง');
+    return false;
+  }
+  hideSyncBanner();
+  return true;
 }
 
 const getProcList=()=>{try{const s=JSON.parse(appGetItem('proc_list')||'[]');return s.length?s:[...DEFAULT_PROCS]}catch(e){return[...DEFAULT_PROCS]}};
 async function saveProcList(arr){
   appSetItem('proc_list',JSON.stringify(arr));
-  if(sbReady()) sbUpsert('user_lists',{list_name:'proc_list',items:arr},'user_id,list_name');
+  if(!sbReady()) return false;
+  try{await sbUpsert('user_lists',{list_name:'proc_list',items:arr},'user_id,list_name');return true;}
+  catch(e){showSyncBanner('❌ บันทึกรายการหัตถการขึ้น Supabase ไม่สำเร็จ');return false;}
 }
 
 const getMachList=()=>{try{const s=JSON.parse(appGetItem('mach_list')||'[]');return s.length?s:[...DEFAULT_MACHS]}catch(e){return[...DEFAULT_MACHS]}};
 async function saveMachList(arr){
   appSetItem('mach_list',JSON.stringify(arr));
-  if(sbReady()) sbUpsert('user_lists',{list_name:'mach_list',items:arr},'user_id,list_name');
+  if(!sbReady()) return false;
+  try{await sbUpsert('user_lists',{list_name:'mach_list',items:arr},'user_id,list_name');return true;}
+  catch(e){showSyncBanner('❌ บันทึกรายการเครื่องขึ้น Supabase ไม่สำเร็จ');return false;}
 }
 
 const getTradeList=()=>{try{return JSON.parse(appGetItem('trade_list')||'[]')}catch(e){return[]}};
@@ -884,7 +903,8 @@ const saveTradeToList=name=>{
   if(!name||name.length<2)return;
   const l=getTradeList();
   if(!l.includes(name)){l.unshift(name);if(l.length>100)l.pop();appSetItem('trade_list',JSON.stringify(l));}
-  if(sbReady()) sbUpsert('user_lists',{list_name:'trade_list',items:l},'user_id,list_name');
+  if(sbReady()) sbUpsert('user_lists',{list_name:'trade_list',items:l},'user_id,list_name')
+    .catch(()=>showSyncBanner('❌ บันทึกชื่อทางการค้าขึ้น Supabase ไม่สำเร็จ'));
 };
 
 /* --- Hanging fee --- */
@@ -892,7 +912,18 @@ const skHang=(y,m)=>`hang_${y}_${m}`;
 const getHanging=(y,m)=>{const v=appGetItem(skHang(y,m));return v!==null?parseFloat(v)||0:0;};
 async function saveHanging(y,m,val){
   appSetItem(skHang(y,m),val);
-  if(sbReady()) sbUpsert('hanging_fees',{year_month:`${y}-${m}`, amount:parseFloat(val)||0},'user_id,year_month');
+  if(!sbReady()){
+    showSyncBanner('⚠️ ยังไม่ได้เข้าสู่ระบบ Supabase — ค่าแขวนป้ายยังไม่ถูกบันทึกถาวร');
+    return false;
+  }
+  try{
+    await sbUpsert('hanging_fees',{year_month:`${y}-${m}`, amount:parseFloat(val)||0},'user_id,year_month');
+    hideSyncBanner();
+    return true;
+  }catch(e){
+    showSyncBanner('❌ บันทึกค่าแขวนป้ายขึ้น Supabase ไม่สำเร็จ');
+    return false;
+  }
 }
 
 /* =====================================================
@@ -903,10 +934,16 @@ async function pullFromSupabase(){
   if(!sbReady()) return;
   showSyncBanner('🔄 กำลัง sync ข้อมูลจาก cloud...');
 
-  const cls = await sbSelect('clinics','order=created_at.asc');
-  const shifts = await sbSelect('shifts','order=shift_date.asc');
-  const hangs = await sbSelect('hanging_fees');
-  const lists = await sbSelect('user_lists');
+  let cls,shifts,hangs,lists;
+  try{
+    cls = await sbSelect('clinics','order=created_at.asc');
+    shifts = await sbSelect('shifts','order=shift_date.asc');
+    hangs = await sbSelect('hanging_fees');
+    lists = await sbSelect('user_lists');
+  }catch(e){
+    hideSyncBanner();
+    throw e;
+  }
   if([cls,shifts,hangs,lists].some(v=>v===null)){
     hideSyncBanner();
     throw new Error('Supabase sync failed');
@@ -1813,18 +1850,28 @@ async function saveDay(){
     sitting,procFee:totalProcFeeCalc,machFee,lump,
     patients:savedPats,machs:savedMachs,total,
     paidSitting:!!prevDay.paidSitting,paidDf:!!prevDay.paidDf};
-  await saveData(curYear,curMonth,data);
+  const saved=await saveData(curYear,curMonth,data);
+  if(!saved) return; /* saveData showed the failure banner — keep sheet open to retry */
   /* save unique trade names for autocomplete */
   savedPats.forEach(pat=>(pat.procs||[]).forEach(pr=>{if(pr.tradeName)saveTradeToList(pr.tradeName);}));
   closeSheet();renderCalendar();
 }
 async function clearDay(){
   if(!selectedDay)return;
-  const data=getData(curYear,curMonth);
+  if(!sbReady()){
+    showSyncBanner('⚠️ ยังไม่ได้เข้าสู่ระบบ Supabase — ลบข้อมูลถาวรไม่ได้');
+    return;
+  }
   const dateStr=`${curYear}-${String(curMonth+1).padStart(2,'0')}-${String(selectedDay).padStart(2,'0')}`;
+  try{
+    await sbDelete('shifts','shift_date=eq.'+dateStr);
+  }catch(e){
+    showSyncBanner('❌ ลบข้อมูลบน Supabase ไม่สำเร็จ — กรุณาลองอีกครั้ง');
+    return;
+  }
+  const data=getData(curYear,curMonth);
   delete data[selectedDay];
-  await saveData(curYear,curMonth,data);
-  if(sbReady()) sbDelete('shifts','shift_date=eq.'+dateStr);
+  appSetItem(sk(curYear,curMonth),JSON.stringify(data));
   closeSheet();renderCalendar();
 }
 
@@ -1896,14 +1943,26 @@ async function saveClinic(){
   const abbr=document.getElementById('cAbbr').value.trim().toUpperCase()||name.replace(/\s+/g,'').slice(0,3).toUpperCase();
   const fields={name,abbr,color:selColor,hourRate:document.getElementById('cHourRate').value||'',hours:document.getElementById('cHours').value||'',lump:document.getElementById('cLump').value||'',procPct:document.getElementById('cProcPct').value||'',machPct:document.getElementById('cMachPct').value||'',condition:document.getElementById('cCondition').value||''};
   const clinics=getClinics();
-  if(editingClinicId){const idx=clinics.findIndex(c=>c.id===editingClinicId);if(idx>=0)clinics[idx]={...clinics[idx],...fields};editingClinicId=null;}
+  if(editingClinicId){const idx=clinics.findIndex(c=>c.id===editingClinicId);if(idx>=0)clinics[idx]={...clinics[idx],...fields};}
   else{clinics.push({id:'cl_'+Date.now(),...fields});}
-  await saveClinics(clinics);switchMgrTab('list');renderClinicList();
+  const ok=await saveClinics(clinics);
+  if(!ok){renderClinicList();return;} /* banner shown — keep form open to retry */
+  editingClinicId=null;
+  switchMgrTab('list');renderClinicList();
 }
 async function deleteClinic(id,e){e.stopPropagation();if(!confirm('ลบคลินิกนี้?'))return;
+  if(!sbReady()){
+    showSyncBanner('⚠️ ยังไม่ได้เข้าสู่ระบบ Supabase — ลบคลินิกถาวรไม่ได้');
+    return;
+  }
+  try{
+    await sbDelete('clinics','id=eq.'+id);
+  }catch(err){
+    showSyncBanner('❌ ลบคลินิกบน Supabase ไม่สำเร็จ — กรุณาลองอีกครั้ง');
+    return;
+  }
   const newList=getClinics().filter(c=>c.id!==id);
-  await saveClinics(newList);
-  if(sbReady()) sbDelete('clinics','id=eq.'+id);
+  appSetItem('clinic_presets',JSON.stringify(newList));
   renderClinicList();
 }
 
@@ -2164,11 +2223,18 @@ function generateIncomeReport(){
   document.getElementById('incResultView').style.display='block';
 }
 
-async function toggleIncomePaid(y,m,day,field,checked){
+async function toggleIncomePaid(y,m,day,field,el){
   const data=getData(y,m);
   if(!data[day]) return;
+  const checked=el.checked;
   data[day][field]=checked;
-  await saveData(y,m,data);
+  const saved=await saveData(y,m,data);
+  if(!saved){
+    data[day][field]=!checked;
+    appSetItem(sk(y,m),JSON.stringify(data));
+    el.checked=!checked;
+    return;
+  }
   const row=document.getElementById(`incrow_${y}_${m}_${day}`);
   if(row){
     const dd=data[day];
@@ -2196,10 +2262,10 @@ function renderIncomeResult(clinicMap,title){
       tr.className=(d.paidSitting&&d.paidDf)?'income-paid-row':'';
       const gtag=d.condition==='guarantee'?` <span style="font-size:9px;background:#fff3e0;color:#e65100;border-radius:6px;padding:1px 4px;vertical-align:middle">การันตี</span>`:'';
       tr.innerHTML=`<td>${d.dateLabel}${gtag}</td>
-        <td class="r"><div class="income-pay-cell"><span>${d.sitting>0?'฿'+Math.round(d.sitting).toLocaleString('th-TH'):'—'}</span><input class="income-pay-check" type="checkbox" title="ยืนยันรับค่านั่งแล้ว" ${d.paidSitting?'checked':''} onchange="toggleIncomePaid(${d.year},${d.month},${d.day},'paidSitting',this.checked)"></div></td>
+        <td class="r"><div class="income-pay-cell"><span>${d.sitting>0?'฿'+Math.round(d.sitting).toLocaleString('th-TH'):'—'}</span><input class="income-pay-check" type="checkbox" title="ยืนยันรับค่านั่งแล้ว" ${d.paidSitting?'checked':''} onchange="toggleIncomePaid(${d.year},${d.month},${d.day},'paidSitting',this)"></div></td>
         <td class="r">${d.procFee>0?'฿'+Math.round(d.procFee).toLocaleString('th-TH'):'—'}</td>
         <td class="r">${d.machFee>0?'฿'+Math.round(d.machFee).toLocaleString('th-TH'):'—'}</td>
-        <td class="r" style="color:var(--primary-mid);font-weight:700"><div class="income-pay-cell"><span>${(d.procFee+d.machFee)>0?'฿'+Math.round(d.procFee+d.machFee).toLocaleString('th-TH'):'—'}</span><input class="income-pay-check" type="checkbox" title="ยืนยันรับ DF รวมแล้ว" ${d.paidDf?'checked':''} onchange="toggleIncomePaid(${d.year},${d.month},${d.day},'paidDf',this.checked)"></div></td>
+        <td class="r" style="color:var(--primary-mid);font-weight:700"><div class="income-pay-cell"><span>${(d.procFee+d.machFee)>0?'฿'+Math.round(d.procFee+d.machFee).toLocaleString('th-TH'):'—'}</span><input class="income-pay-check" type="checkbox" title="ยืนยันรับ DF รวมแล้ว" ${d.paidDf?'checked':''} onchange="toggleIncomePaid(${d.year},${d.month},${d.day},'paidDf',this)"></div></td>
         <td class="r">${d.lump>0?'฿'+Math.round(d.lump).toLocaleString('th-TH'):'—'}</td>
         <td class="r" style="color:var(--primary);font-weight:700">฿${Math.round(d.total).toLocaleString('th-TH')}</td>`;
       tbody.appendChild(tr);
