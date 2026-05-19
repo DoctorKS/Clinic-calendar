@@ -53,6 +53,8 @@ body{font-family:'Sarabun',sans-serif;background:var(--bg);color:var(--text);min
 .hdr-btns{display:flex;gap:6px;flex-shrink:0}
 .add-clinic-btn{background:rgba(255,255,255,.18);border:none;color:#fff;padding:7px 10px;border-radius:20px;font-size:11px;font-weight:600;font-family:'Sarabun',sans-serif;cursor:pointer;white-space:nowrap}
 .add-clinic-btn:active{background:rgba(255,255,255,.32)}
+.header-refresh-btn{width:31px;height:31px;padding:0!important;border-radius:50%!important;font-size:16px!important;line-height:1;display:flex;align-items:center;justify-content:center}
+.header-refresh-btn:disabled{opacity:.55;cursor:wait}
 .month-nav{display:flex;align-items:center;gap:16px}
 .nav-btn{background:rgba(255,255,255,.18);border:none;color:#fff;width:36px;height:36px;border-radius:50%;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center}
 .nav-btn:active{background:rgba(255,255,255,.32)}
@@ -414,6 +416,7 @@ body.auth-locked .auth-overlay{display:flex}
     <h1>🏥 เวรคลินิก</h1>
     <div class="hdr-btns">
       <button class="add-clinic-btn" onclick="openBackup()">💾 Backup</button>
+      <button class="add-clinic-btn header-refresh-btn" id="headerRefreshBtn" type="button" title="Refresh จาก Supabase" aria-label="Refresh จาก Supabase" onclick="refreshFromCloud()">↻</button>
       <button class="add-clinic-btn" onclick="openClinicMgr()">＋ คลินิก</button>
       <button class="add-clinic-btn" onclick="logoutLocalAuth()">ล็อกออก</button>
     </div>
@@ -2326,6 +2329,33 @@ async function restoreFromCloud(){
     status.className='backup-status err';
     btn.textContent='🔄 Restore จาก Supabase';
     btn.disabled=false;
+  }
+}
+
+async function refreshFromCloud(){
+  const btn=document.getElementById('headerRefreshBtn');
+  if(!sbReady()){
+    showSyncBanner('ยังไม่ได้เข้าสู่ระบบ Supabase');
+    setTimeout(hideSyncBanner,1800);
+    return;
+  }
+  if(btn){
+    btn.disabled=true;
+    btn.textContent='...';
+  }
+  try{
+    await pullFromSupabase();
+    updateSummary();
+    showSyncBanner('Refresh จาก Supabase สำเร็จ');
+    setTimeout(hideSyncBanner,1200);
+  }catch(e){
+    showSyncBanner('Refresh ไม่สำเร็จ: '+(e.message||'Supabase sync failed'));
+    setTimeout(hideSyncBanner,2600);
+  }finally{
+    if(btn){
+      btn.disabled=false;
+      btn.textContent='↻';
+    }
   }
 }
 (function setHeaderH(){
