@@ -415,6 +415,7 @@ body.auth-locked .auth-overlay{display:flex}
   <div class="header-top">
     <h1>🏥 เวรคลินิก</h1>
     <div class="hdr-btns">
+      <button class="add-clinic-btn header-refresh-btn" id="headerSyncBtn" type="button" title="Sync ข้อมูลในเครื่องขึ้น Supabase" aria-label="Sync ข้อมูลในเครื่องขึ้น Supabase" onclick="syncLocalToSupabase()">⬆</button>
       <button class="add-clinic-btn header-refresh-btn" id="headerRefreshBtn" type="button" title="Refresh จาก Supabase" aria-label="Refresh จาก Supabase" onclick="refreshFromCloud()">↻</button>
       <button class="add-clinic-btn" onclick="openBackup()">💾 Backup</button>
       <button class="add-clinic-btn" onclick="openClinicMgr()">＋ คลินิก</button>
@@ -2362,6 +2363,52 @@ async function restoreFromCloud(){
     status.className='backup-status err';
     btn.textContent='🔄 Restore จาก Supabase';
     btn.disabled=false;
+  }
+}
+
+async function syncLocalToSupabase(){
+  const btn=document.getElementById('headerSyncBtn');
+  if(!sbReady()){
+    showSyncBanner('ยังไม่ได้เข้าสู่ระบบ Supabase');
+    setTimeout(hideSyncBanner,1800);
+    return;
+  }
+  if(btn){
+    btn.disabled=true;
+    btn.textContent='...';
+  }
+  showSyncBanner('🔄 กำลังอัปโหลดข้อมูลในเครื่องขึ้น Supabase...');
+  try{
+    const tasks=[];
+    tasks.push(saveClinics(getClinics()));
+    tasks.push(saveProcList(getProcList()));
+    tasks.push(saveMachList(getMachList()));
+    tasks.push(sbUpsert('user_lists',{list_name:'trade_list',items:getTradeList()},'user_id,list_name'));
+    eachAppCacheKey((baseKey)=>{
+      const parts=baseKey.split('_');
+      const y=parseInt(parts[1],10), m=parseInt(parts[2],10);
+      if(baseKey.startsWith('clinic_')&&Number.isFinite(y)&&Number.isFinite(m))
+        tasks.push(saveData(y,m,getData(y,m)));
+      else if(baseKey.startsWith('hang_')&&Number.isFinite(y)&&Number.isFinite(m))
+        tasks.push(saveHanging(y,m,getHanging(y,m)));
+    });
+    const results=await Promise.allSettled(tasks);
+    const failed=results.some(r=>r.status==='rejected'||r.value===false);
+    if(failed){
+      showSyncBanner('❌ อัปโหลดบางส่วนไม่สำเร็จ — กรุณาลองอีกครั้ง');
+      setTimeout(hideSyncBanner,3000);
+    }else{
+      showSyncBanner('✅ อัปโหลดข้อมูลขึ้น Supabase สำเร็จ');
+      setTimeout(hideSyncBanner,1600);
+    }
+  }catch(e){
+    showSyncBanner('❌ Sync ไม่สำเร็จ: '+(e.message||'Supabase sync failed'));
+    setTimeout(hideSyncBanner,2600);
+  }finally{
+    if(btn){
+      btn.disabled=false;
+      btn.textContent='⬆';
+    }
   }
 }
 
