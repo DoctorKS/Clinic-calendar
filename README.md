@@ -56,18 +56,19 @@ https://doctorks.github.io/Clinic-calendar/
 
 ---
 
-## ☁️ Cloud Sync (Supabase) — Optional
+## ☁️ Cloud Storage (Supabase) — Required
 
-สำหรับ sync ข้อมูลข้าม device:
+แอปนี้ใช้ **Supabase เป็นที่เก็บข้อมูลหลัก** (ไม่เก็บใน localStorage แล้ว) —
+ต้องตั้งค่า Supabase ก่อนใช้งาน:
 
 1. สมัคร [supabase.com](https://supabase.com) (ฟรี)
 2. สร้าง project → รัน SQL schema จากไฟล์ `supabase_schema.sql`
-3. แก้ไขใน `clinic_patient.html`:
+3. แก้ไขใน `index.html`:
 ```javascript
 const SB_URL = 'https://xxxxxxxxxxxx.supabase.co';
 const SB_KEY = 'your-anon-public-key';
 ```
-4. กดปุ่ม 🔑 **Login** ในแอป → เข้าสู่ระบบ → ข้อมูล sync อัตโนมัติ
+4. กดปุ่ม 🔑 **Login** ในแอป → เข้าสู่ระบบ → ข้อมูลโหลดจาก Supabase อัตโนมัติ
 
 ---
 
@@ -75,9 +76,9 @@ const SB_KEY = 'your-anon-public-key';
 
 ```
 Clinic-calendar/
-├── clinic_patient.html      # แอปหลัก (single-file HTML)
-├── supabase_schema.sql      # SQL schema สำหรับ Supabase
-├── apple-touch-icon.png     # App icon สำหรับ iPhone home screen
+├── index.html              # แอปหลัก (single-file HTML)
+├── supabase_schema.sql     # SQL schema สำหรับ Supabase
+├── CLAUDE.md               # Project doc + Claude guardrails
 └── README.md
 ```
 
@@ -85,9 +86,10 @@ Clinic-calendar/
 
 ## 🔒 ความเป็นส่วนตัว · Privacy
 
-- ข้อมูลทั้งหมดเก็บใน **localStorage** บนเครื่องตัวเอง
-- ไม่มี server, ไม่มี analytics, ไม่มีการส่งข้อมูลออกภายนอก
-- Supabase sync เป็น optional — ข้อมูลอยู่ใน project ของตัวเอง
+- ข้อมูลทำเวรทั้งหมดเก็บใน **Supabase project ของคุณเอง** (account ฟรี)
+- บน browser มีแค่ session token (key `sb_session` ใน localStorage)
+  — **ไม่มีข้อมูลทำเวรเก็บในเครื่อง**
+- ไม่มี analytics, ไม่ส่งข้อมูลให้บุคคลที่สามนอกจาก Supabase ที่คุณตั้งเอง
 
 ---
 
@@ -103,12 +105,15 @@ Clinic-calendar/
 
 ## ⚠️ หมายเหตุสำคัญ · Important Notes
 
-**การสูญหายของข้อมูล** — localStorage จะหายถ้า:
-- กด Clear History / Clear Website Data ใน Safari
-- Reset iPhone
-- iOS ล้าง inactive site data อัตโนมัติ (>7 วัน + ITP)
+**ต้องเข้าสู่ระบบ Supabase ก่อนใช้งาน** — แอปไม่เก็บข้อมูลออฟไลน์ในเครื่อง
 
-**แนะนำ:** Export JSON สำรองไว้เป็นประจำ หรือใช้ Supabase sync
+- ถ้า Supabase ขัดข้อง / offline → จะมีแถบแจ้งเตือนสีแดง (fail-loud)
+  และต้องลองอีกครั้งเมื่อเชื่อมต่อได้
+- ปุ่ม ⬆ ใช้ push ข้อมูลที่ค้างในเครื่องขึ้น Supabase
+  (เช่น หลัง Import JSON backup)
+- ปุ่ม ↻ โหลดแอปเวอร์ชันล่าสุดจาก server + ดึงข้อมูลใหม่จาก Supabase
+
+**แนะนำ:** Export JSON สำรองไว้บางครั้ง เผื่อ Supabase project หาย
 
 ---
 
