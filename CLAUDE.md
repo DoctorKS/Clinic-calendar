@@ -127,43 +127,156 @@ Read this before changing any storage, sync, or data-loading code in
 `index.html`. It captures rules the human owner wants enforced across
 every session.
 
-## Pure-Supabase data policy (do not touch)
+## Local-First Architecture (standing policy)
 
-This app uses Supabase as the **only** durable store for app data.
-Local-browser persistence is deliberately limited to a single key.
+This app writes to `localStorage` first, updates the UI immediately, and
+syncs to Supabase in the background. Reaching the network must **never**
+block what the user sees. Supabase is the durable cloud copy; localStorage
+is the source of truth at write time and the cache at read time.
 
-1. **Keep only `sb_session` in `localStorage`. Nothing else.**
-   That single key stores the Supabase auth token. App data — clinics,
-   shifts, hanging fees, proc/mach/trade lists — lives in the in-memory
-   `appMemoryStore` only, and is populated from Supabase via
-   `pullFromSupabase()` on load. Never write app data, settings, or
-   any other value to `localStorage` (or `sessionStorage`, IndexedDB,
-   cookies, Cache API, a service worker).
+This supersedes the prior "Pure-Supabase data policy" (commit `ac8472a` +
+follow-ups). The fail-loud-on-Supabase-error pattern is downgraded from a
+hard contract to a fallback signal — failed writes go into a retry queue,
+not a blocking error.
 
-2. **If a change would make any code touch `localStorage` (other than
-   `sb_session`) OR modify a database/storage/sync function, STOP and
-   tell the human owner what you intend to do, and wait for the
-   go-ahead before doing it.**
+### Core principle
 
-   The functions in scope include (non-exhaustive):
+> Write to local first → show UI immediately → sync to server in background.
+> **Never block UI on network.**
+
+### Write path
+
+```
+User action
+    ↓
+Write to localStorage (instant, synchronous)
+    ↓
+Update UI immediately ← user sees result right away
+    ↓
+Queue operation in sync queue (also in localStorage)
+    ↓
+Background: push to Supabase (async, non-blocking)
+    ↓
+On success → mark as SYNCED
+On failure → keep in queue → retry with backoff
+```
+
+### The sync queue — most important piece
+
+Every write enters a pending queue stored in `localStorage` under the key
+`sync_queue` before it ever hits Supabase. Each queue entry:
+
+```javascript
+{
+  id: uuid,                              // entry id, not record id
+  operation: 'upsert' | 'delete',
+  table: 'shifts' | 'clinics' | …,
+  payload: { … },                        // the row
+  timestamp: Date.now(),
+  retryCount: 0,
+  state: 'PENDING' | 'SYNCING' | 'SYNCED' | 'CONFLICT' | 'ERROR'
+}
+```
+
+On reconnect / app open → flush the queue → Supabase receives all pending
+ops in order. The queue survives offline, page reload, app crash, and
+device reboot because it lives in `localStorage`.
+
+### Conflict resolution — Last Write Wins by `updated_at`
+
+```javascript
+if (localRecord.updated_at > serverRecord.updated_at) {
+  // push local to server
+} else {
+  // pull server to local
+}
+```
+
+Sufficient for single-user / multi-device. Do not introduce CRDTs, merge,
+or operational transforms without owner approval — they are not warranted
+for this workload.
+
+### Sync state per record
+
+- `PENDING` → written locally, not yet sent
+- `SYNCING` → currently being sent
+- `SYNCED`  → confirmed by server
+- `CONFLICT` → server has newer version
+- `ERROR`   → failed after N retries
+
+### Retry policy — exponential backoff
+
+```
+Attempt 1: immediate
+Attempt 2: 2 seconds
+Attempt 3: 4 seconds
+Attempt 4: 8 seconds
+Attempt 5: 16 seconds
+After 5 → move to dead-letter queue → notify user via fail-loud banner
+```
+
+### What each layer protects against
+
+```
+User types        → localStorage write (instant)       prevents data loss
+Network drops     → sync queue persists locally        survives offline
+App crash         → queue survives in localStorage     crash safe
+Server error      → retry with exponential backoff     eventually consistent
+Device reset      → server has full copy               recoverable
+Conflict          → updated_at comparison              deterministic
+```
+
+### Current state vs. target state
+
+- ✅ Background push to Supabase exists (`syncLocalToSupabase`)
+- ✅ Pull on open exists (`pullFromSupabase`)
+- ❌ No localStorage cache of app data yet — only `sb_session`
+- ❌ No sync queue (failed writes are lost silently)
+- ❌ No `updated_at` comparison on pull
+- ❌ No retry-with-backoff on failure
+- ❌ No online/offline detection
+
+The migration is in progress. Current code reflects the prior policy in
+many places. Treat this section as the **target** that all new edits
+must move toward, not the current implementation.
+
+### Standing instruction to Claude / Codex
+
+Before changing any storage, sync, or data-loading code in `index.html`:
+
+1. **Read this section.**
+2. **Confirm the change moves toward local-first**, not away from it.
+   Adding a localStorage cache, the sync queue, retry logic, or
+   `updated_at` comparison — all good. Removing localStorage usage,
+   blocking the UI on a Supabase call, or silently dropping a failed
+   write — all bad.
+3. **If the change touches the sync queue shape, retry policy, conflict
+   resolution, or the on-disk localStorage cache shape, STOP and tell
+   the human owner what you intend to do, and wait for the go-ahead.**
+   These are the contract; changing them mid-migration causes data
+   corruption.
+4. **Never delete a `localStorage` app-data key without a migration path.**
+   Users have data in there; dropping it loses real shifts and real
+   income.
+5. The functions in scope of this rule include (non-exhaustive):
    `sbFetch`, `sbUpsert`, `sbSelect`, `sbDelete`,
    `appGetItem` / `appSetItem` / `appRemoveItem`, `appMemoryStore`,
-   `clearCurrentUserCache`, `eachAppCacheKey`,
    `pullFromSupabase`, `syncLocalToSupabase`,
-   and the per-domain savers: `saveData`, `saveClinics`,
-   `saveProcList`, `saveMachList`, `saveTradeToList`, `saveHanging`.
+   the per-domain savers (`saveData`, `saveClinics`, `saveProcList`,
+   `saveMachList`, `saveTradeToList`, `saveHanging`),
+   and any future `enqueue`, `flushSyncQueue`, `resolveConflict`,
+   `retryWithBackoff` introduced during the migration.
 
 ### Why this rule exists
 
-Silent local caching was deliberately removed in commit `ac8472a`
-("use Supabase as app data source"). Reintroducing it would:
-- Resurface stale data after the user edits on another device.
-- Break the **fail-loud** save guarantees the rest of the code depends
-  on (a failed Supabase write must be visible to the user, not
-  papered over by a local cache that looks "saved").
-- Make `restoreFromCloud`, `syncLocalToSupabase`, and the ↻ reload
-  button behave unpredictably, since they assume in-memory state is
-  the only thing that can diverge from Supabase.
+The "Supabase-only, fail loud" approach (commit `ac8472a`) had a real
+problem: when a write fails (network glitch, Supabase rate limit, expired
+token), the user sees an error and the data is gone. There is no retry
+path. Real-world mobile use on iPhone Safari hits this — flaky LTE in a
+clinic, captive-portal wifi, sleeping device while saving. The local-first
++ sync-queue model fixes this without giving up cloud sync: localStorage
+absorbs the write instantly, the queue absorbs the network unreliability,
+and Supabase remains the durable cross-device source.
 
-The owner chose "Supabase-only, fail loud" explicitly. Treat that as
-a standing decision, not a default to revisit.
+This is a deliberate reversal of `ac8472a`. Treat it as a standing
+decision, not a default to revisit.
