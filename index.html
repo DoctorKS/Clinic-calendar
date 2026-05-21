@@ -832,9 +832,10 @@ function hydrateFromLocalCache(){
    in-flight writes between localStorage and Supabase.
 
    Entry shape: { id, table, operation, payload, conflictKey,
-                  timestamp, retryCount, state }
-   state: 'PENDING' | 'ERROR' (SYNCING/SYNCED/CONFLICT reserved for
-   Step 3/4 — backoff and updated_at conflict resolution).
+                  timestamp, retryCount, nextAttemptAt, state }
+   payload.updated_at is auto-stamped by enqueue() for Step 4a LWW.
+   state: 'PENDING' | 'ERROR' (CONFLICT reserved for Step 4b UI;
+   SYNCING/SYNCED reserved for if/when we ever need them).
    ===================================================== */
 const _syncQueueKey = () => {
   const uid = sbUserId();
@@ -864,10 +865,19 @@ function saveSyncQueue(queue){
 
 function enqueue(table, operation, payload, conflictKey){
   if(!_syncQueueKey()) return null;
+  /* Step 4a LWW: stamp updated_at on the payload so the next pull can
+     compare timestamps and decide whether the server's row or this
+     queued local edit should win. Caller can override by setting
+     payload.updated_at explicitly. */
+  const stamped = {...payload};
+  if(stamped.updated_at === undefined){
+    stamped.updated_at = new Date().toISOString();
+  }
   const queue = loadSyncQueue();
   const entry = {
     id: 'sq_'+Date.now()+'_'+Math.random().toString(36).slice(2,8),
-    table, operation, payload,
+    table, operation,
+    payload: stamped,
     conflictKey: conflictKey || '',
     timestamp: Date.now(),
     retryCount: 0,
@@ -1177,6 +1187,37 @@ async function pullFromSupabase(){
   if([cls,shifts,hangs,lists].some(v=>v===null)){
     hideSyncBanner();
     throw new Error('Supabase sync failed');
+  }
+
+  /* Step 4a LWW: prune queue entries that the server has overwritten
+     with a newer updated_at. Server wins → drop the entry silently
+     (Step 4b will surface this via CONFLICT state + UI). Entries with
+     no updated_at (pre-Step-4 queue, or missing server column) are
+     kept to be safe — never lose data on a missing-timestamp fallback. */
+  const _queue = loadSyncQueue();
+  const _survivor = _queue.filter(entry => {
+    if(entry.state !== 'PENDING' && entry.state !== 'ERROR') return true;
+    const entryTs = entry.payload && entry.payload.updated_at;
+    if(!entryTs) return true;
+    let serverRow = null;
+    if(entry.table === 'shifts'){
+      serverRow = (shifts||[]).find(r => r.shift_date === entry.payload.shift_date);
+    } else if(entry.table === 'clinics'){
+      serverRow = (cls||[]).find(r => r.id === entry.payload.id);
+    } else if(entry.table === 'hanging_fees'){
+      serverRow = (hangs||[]).find(r => r.year_month === entry.payload.year_month);
+    } else if(entry.table === 'user_lists'){
+      serverRow = (lists||[]).find(r => r.list_name === entry.payload.list_name);
+    }
+    if(!serverRow) return true;
+    const serverTs = serverRow.updated_at;
+    if(!serverTs) return true;
+    /* Keep entry only if its updated_at is strictly newer than server. */
+    return new Date(entryTs).getTime() > new Date(serverTs).getTime();
+  });
+  if(_survivor.length !== _queue.length){
+    saveSyncQueue(_survivor);
+    console.info('Step 4a LWW: dropped '+(_queue.length-_survivor.length)+' queue entries (server has newer updated_at)');
   }
 
   clearCurrentUserCache();

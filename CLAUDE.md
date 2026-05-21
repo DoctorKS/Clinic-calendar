@@ -254,8 +254,13 @@ Conflict          → updated_at comparison              deterministic
 - ✅ Retry-with-exponential-backoff per entry (Step 3 — see
   `RETRY_DELAYS`, `_scheduleNextFlush`; schedule 0s/2s/4s/8s/16s →
   dead-letter; `online` event resets backoff to immediate)
-- ❌ No `updated_at` comparison on pull (Step 4)
-- ❌ No conflict-resolution UI for CONFLICT state (Step 4)
+- ✅ `updated_at` LWW pruning on pull (Step 4a — `enqueue` auto-stamps
+  payload.updated_at; `pullFromSupabase` drops queue entries whose
+  server row has a newer timestamp; entries without updated_at are
+  kept as a safe fallback)
+- ❌ No conflict-resolution UI for CONFLICT state — silent drops
+  today; Step 4b will surface them with a "use local / use server"
+  dialog
 
 The migration is in progress. Current code reflects the prior policy in
 many places. Treat this section as the **target** that all new edits
