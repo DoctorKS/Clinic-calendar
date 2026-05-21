@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git fetch *)",
+      "Bash(git log *)",
+      "Bash(git push *)",
+      "Skill(anthropic-skills:skill-creator)",
+      "Skill(anthropic-skills:skill-creator:*)",
+      "Bash(mkdir \"C:\\\\Users\\\\User\\\\Clinic-calendar\\\\.claude\\\\skills\\\\engineering\\\\explain-before-edit\")",
+      "Bash(mkdir \"C:\\\\Users\\\\User\\\\Clinic-calendar\\\\.claude\\\\skills\\\\engineering\\\\session-review\")",
+      "Bash(git checkout *)",
+      "Bash(git add *)"
+    ]
+  }
+}
