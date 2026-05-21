@@ -890,23 +890,62 @@ function _updateSyncBanner(queue){
   }
 }
 
+/* Step 3 — per-entry exponential backoff. After failure attempt N
+   (N in 1..4), the entry's nextAttemptAt is set to now + RETRY_DELAYS[N].
+   A single shared timer fires at the soonest due time and triggers a
+   flush. After 5 failures the entry goes to dead-letter (state='ERROR')
+   and waits for manual ⬆ to retry. */
+const RETRY_DELAYS = [0, 2000, 4000, 8000, 16000];
+let _flushTimer = null;
+
+function _scheduleNextFlush(){
+  if(_flushTimer){ clearTimeout(_flushTimer); _flushTimer = null; }
+  if(!sbReady()) return;
+  const q = loadSyncQueue();
+  const now = Date.now();
+  let earliest = Infinity;
+  let anyDueNow = false;
+  for(const e of q){
+    if(e.state !== 'PENDING') continue;
+    const due = e.nextAttemptAt || 0;
+    if(due <= now){ anyDueNow = true; break; }
+    if(due < earliest) earliest = due;
+  }
+  if(anyDueNow){
+    /* Immediately due — flush now; its finally block reschedules. */
+    flushSyncQueue();
+    return;
+  }
+  if(earliest === Infinity) return;  /* nothing PENDING (all ERROR / empty) */
+  const delay = Math.max(0, earliest - now);
+  _flushTimer = setTimeout(() => {
+    _flushTimer = null;
+    flushSyncQueue();
+  }, delay);
+}
+
 /* Walk PENDING entries in FIFO order. Reload queue from localStorage
    on every step so concurrent enqueue() calls (from other saves during
-   a flush) are not lost. Fail-fast on first network error — Step 3
-   will add per-entry exponential backoff. */
+   a flush) are not lost. Skip entries not yet due (Step 3 backoff).
+   Fail-fast on first error within a flush — _scheduleNextFlush at the
+   end fires the next attempt at the right time. */
 async function flushSyncQueue(){
   if(_flushInProgress) return;
   if(!sbReady()) return;
   _flushInProgress = true;
   try{
+    const now = Date.now();
     const startQueue = loadSyncQueue();
-    const pendingIds = startQueue.filter(e => e.state === 'PENDING').map(e => e.id);
+    const pendingIds = startQueue.filter(e =>
+      e.state === 'PENDING' && (e.nextAttemptAt || 0) <= now
+    ).map(e => e.id);
     for(const id of pendingIds){
       let q = loadSyncQueue();
       const idx = q.findIndex(e => e.id === id);
       if(idx === -1) continue;
       const entry = q[idx];
       if(entry.state !== 'PENDING') continue;
+      if((entry.nextAttemptAt || 0) > Date.now()) continue;
       try{
         if(entry.operation === 'upsert'){
           await sbUpsert(entry.table, entry.payload, entry.conflictKey);
@@ -924,24 +963,45 @@ async function flushSyncQueue(){
         q = loadSyncQueue();
         const i2 = q.findIndex(e => e.id === id);
         if(i2 !== -1){
-          q[i2].retryCount = (q[i2].retryCount || 0) + 1;
-          q[i2].state = q[i2].retryCount >= 5 ? 'ERROR' : 'PENDING';
+          const next = (q[i2].retryCount || 0) + 1;
+          q[i2].retryCount = next;
+          if(next >= 5){
+            q[i2].state = 'ERROR';
+            q[i2].nextAttemptAt = 0;
+          } else {
+            q[i2].state = 'PENDING';
+            q[i2].nextAttemptAt = Date.now() + (RETRY_DELAYS[next] || 16000);
+          }
           saveSyncQueue(q);
         }
-        /* Fail-fast: stop after first failure to avoid hammering a
-           down server. The next flush trigger picks up where we left off. */
+        /* Fail-fast within this flush: don't hammer a down server.
+           _scheduleNextFlush at the end fires the next attempt at the
+           right backoff slot. */
         break;
       }
     }
     _updateSyncBanner(loadSyncQueue());
   } finally {
     _flushInProgress = false;
+    _scheduleNextFlush();
   }
 }
 
-/* Auto-flush when connectivity returns. */
+/* Auto-flush when connectivity returns. Reset all PENDING entries'
+   backoff to immediate — network is back, no reason to wait. */
 if(typeof window !== 'undefined'){
-  window.addEventListener('online', () => { flushSyncQueue(); });
+  window.addEventListener('online', () => {
+    const q = loadSyncQueue();
+    let changed = false;
+    q.forEach(e => {
+      if(e.state === 'PENDING' && (e.nextAttemptAt || 0) > 0){
+        e.nextAttemptAt = 0;
+        changed = true;
+      }
+    });
+    if(changed) saveSyncQueue(q);
+    flushSyncQueue();
+  });
 }
 
 async function sbFetch(path, opts={}){

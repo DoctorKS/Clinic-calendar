@@ -251,9 +251,10 @@ Conflict          → updated_at comparison              deterministic
   `enqueue`, `flushSyncQueue`; all 6 savers enqueue instead of awaiting
   Supabase; UI never blocks)
 - ✅ Online-event auto-flush (`window.addEventListener('online', ...)`)
+- ✅ Retry-with-exponential-backoff per entry (Step 3 — see
+  `RETRY_DELAYS`, `_scheduleNextFlush`; schedule 0s/2s/4s/8s/16s →
+  dead-letter; `online` event resets backoff to immediate)
 - ❌ No `updated_at` comparison on pull (Step 4)
-- ❌ No retry-with-exponential-backoff yet — current retry is "next
-  trigger" with fail-fast on first failure per flush (Step 3)
 - ❌ No conflict-resolution UI for CONFLICT state (Step 4)
 
 The migration is in progress. Current code reflects the prior policy in
