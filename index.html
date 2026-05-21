@@ -2642,9 +2642,17 @@ async function syncLocalToSupabase(){
     btn.textContent='...';
   }
   try{
-    /* First: reset ERROR entries to PENDING so this manual retry actually
-       retries the dead letters (otherwise flushSyncQueue skips them). */
-    const reset=loadSyncQueue().map(e=>e.state==='ERROR'?{...e,state:'PENDING',retryCount:0}:e);
+    /* First: reset ERROR → PENDING (resurrect dead letters) AND reset
+       nextAttemptAt on PENDING entries still in their Step 3 backoff
+       window — manual ⬆ should override the backoff, "retry NOW". */
+    const _now = Date.now();
+    const reset = loadSyncQueue().map(e => {
+      if(e.state === 'ERROR')
+        return {...e, state:'PENDING', retryCount:0, nextAttemptAt:0};
+      if(e.state === 'PENDING' && (e.nextAttemptAt || 0) > _now)
+        return {...e, nextAttemptAt:0};
+      return e;
+    });
     saveSyncQueue(reset);
     /* Then: enqueue current cache state for force-resync. */
     enqueue('user_lists','upsert',{list_name:'proc_list',items:getProcList()},'user_id,list_name');
