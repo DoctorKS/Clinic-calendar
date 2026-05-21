@@ -832,10 +832,14 @@ function hydrateFromLocalCache(){
    in-flight writes between localStorage and Supabase.
 
    Entry shape: { id, table, operation, payload, conflictKey,
-                  timestamp, retryCount, nextAttemptAt, state }
+                  timestamp, retryCount, nextAttemptAt, state,
+                  serverPayload?, conflictDetectedAt? }
    payload.updated_at is auto-stamped by enqueue() for Step 4a LWW.
-   state: 'PENDING' | 'ERROR' (CONFLICT reserved for Step 4b UI;
-   SYNCING/SYNCED reserved for if/when we ever need them).
+   When pullFromSupabase finds server has a newer updated_at, the
+   entry is marked CONFLICT and serverPayload + conflictDetectedAt
+   are set for the resolveConflictsInteractively UI (Step 4b).
+   state: 'PENDING' | 'ERROR' | 'CONFLICT' (SYNCING/SYNCED reserved
+   for if/when we ever need them).
    ===================================================== */
 const _syncQueueKey = () => {
   const uid = sbUserId();
@@ -890,14 +894,101 @@ function enqueue(table, operation, payload, conflictKey){
 
 function _updateSyncBanner(queue){
   const errs = queue.filter(e => e.state === 'ERROR').length;
-  const pend = queue.length - errs;
-  if(errs > 0){
+  const conflicts = queue.filter(e => e.state === 'CONFLICT').length;
+  const pend = queue.length - errs - conflicts;
+  /* Reset any prior click handler / styling on the banner element so
+     non-conflict states don't inherit a stale click-to-resolve hook. */
+  const _b = document.getElementById('syncBanner');
+  if(_b){ _b.onclick = null; _b.style.cursor = ''; _b.style.textDecoration = ''; }
+  if(conflicts > 0){
+    showSyncBanner('⚠️ พบ conflict '+conflicts+' รายการ — แตะเพื่อจัดการ');
+    const banner = document.getElementById('syncBanner');
+    if(banner){
+      banner.onclick = resolveConflictsInteractively;
+      banner.style.cursor = 'pointer';
+      banner.style.textDecoration = 'underline';
+    }
+  } else if(errs > 0){
     showSyncBanner('❌ ค้าง sync '+errs+' รายการ — แตะ ⬆ เพื่อลองใหม่');
   } else if(pend > 0){
     showSyncBanner('🔄 sync ค้าง '+pend+' รายการ — กำลังรอสัญญาณ');
   } else {
     hideSyncBanner();
   }
+}
+
+/* Step 4b helpers — describe a CONFLICT entry to the user. */
+function _conflictLabel(entry){
+  const p = entry.payload || {};
+  if(entry.table === 'shifts') return 'เวรวันที่ '+(p.shift_date || '?');
+  if(entry.table === 'clinics') return 'คลินิก '+(p.name || p.id || '?');
+  if(entry.table === 'hanging_fees') return 'ค่าแขวนป้าย '+(p.year_month || '?');
+  if(entry.table === 'user_lists') return 'รายการ '+(p.list_name || '?');
+  return entry.table+' '+(entry.id || '?');
+}
+function _conflictSummary(payload){
+  if(!payload) return '(ไม่มีข้อมูล)';
+  const items = [];
+  for(const k of Object.keys(payload)){
+    if(k === 'updated_at' || k === 'user_id' || k === 'created_at') continue;
+    let v = payload[k];
+    if(v === null || v === undefined) continue;
+    if(Array.isArray(v)) v = '['+v.length+' รายการ]';
+    else if(typeof v === 'object') v = '[object]';
+    else if(typeof v === 'string' && v.length > 30) v = v.slice(0,30)+'...';
+    items.push(k+': '+v);
+    if(items.length >= 6) break;
+  }
+  return items.length ? items.join(', ') : '(empty)';
+}
+
+/* Step 4b — walk every CONFLICT entry and let the user choose local
+   vs server for each. Decisions are collected first, then applied to
+   the latest queue state so concurrent enqueues during the walk are
+   preserved. */
+async function resolveConflictsInteractively(){
+  const conflicts = loadSyncQueue().filter(e => e.state === 'CONFLICT');
+  if(conflicts.length === 0){
+    _updateSyncBanner(loadSyncQueue());
+    return;
+  }
+  const decisions = {};
+  let i = 0;
+  for(const entry of conflicts){
+    i++;
+    const label = _conflictLabel(entry);
+    const localTs = (entry.payload && entry.payload.updated_at) || '?';
+    const serverTs = (entry.serverPayload && entry.serverPayload.updated_at) || '?';
+    const localSummary = _conflictSummary(entry.payload);
+    const serverSummary = _conflictSummary(entry.serverPayload);
+    const msg =
+      'Conflict '+i+'/'+conflicts.length+': '+label+'\n\n'+
+      '— Local (แก้บนเครื่อง '+localTs+')\n'+localSummary+'\n\n'+
+      '— Server (cloud มีข้อมูลใหม่กว่า '+serverTs+')\n'+serverSummary+'\n\n'+
+      'กด OK = ใช้ local (เขียนทับ server)\n'+
+      'กด Cancel = ใช้ server (ทิ้งการแก้ในเครื่อง)';
+    decisions[entry.id] = confirm(msg) ? 'local' : 'server';
+  }
+  const latest = loadSyncQueue();
+  const result = [];
+  for(const e of latest){
+    const decision = decisions[e.id];
+    if(!decision){ result.push(e); continue; }
+    if(decision === 'server') continue;  /* drop entry; server wins */
+    /* decision === 'local': bump updated_at so next pull treats this
+       as the newer version, demote to PENDING for flush. */
+    e.payload.updated_at = new Date().toISOString();
+    e.state = 'PENDING';
+    e.retryCount = 0;
+    e.nextAttemptAt = 0;
+    delete e.serverPayload;
+    delete e.conflictDetectedAt;
+    result.push(e);
+  }
+  saveSyncQueue(result);
+  /* flushSyncQueue's finally calls _updateSyncBanner; safe whether or
+     not any 'use local' decisions were made. */
+  flushSyncQueue();
 }
 
 /* Step 3 — per-entry exponential backoff. After failure attempt N
@@ -1189,16 +1280,17 @@ async function pullFromSupabase(){
     throw new Error('Supabase sync failed');
   }
 
-  /* Step 4a LWW: prune queue entries that the server has overwritten
-     with a newer updated_at. Server wins → drop the entry silently
-     (Step 4b will surface this via CONFLICT state + UI). Entries with
-     no updated_at (pre-Step-4 queue, or missing server column) are
-     kept to be safe — never lose data on a missing-timestamp fallback. */
+  /* Step 4b LWW + CONFLICT: walk queue entries; if server has a newer
+     updated_at, mark the entry as CONFLICT and snapshot the server row
+     for the resolution UI. Entries with no updated_at on either side
+     are kept untouched — never lose data on a missing-timestamp fallback. */
   const _queue = loadSyncQueue();
-  const _survivor = _queue.filter(entry => {
-    if(entry.state !== 'PENDING' && entry.state !== 'ERROR') return true;
+  let _conflictCount = 0;
+  let _changed = false;
+  for(const entry of _queue){
+    if(entry.state !== 'PENDING' && entry.state !== 'ERROR') continue;
     const entryTs = entry.payload && entry.payload.updated_at;
-    if(!entryTs) return true;
+    if(!entryTs) continue;
     let serverRow = null;
     if(entry.table === 'shifts'){
       serverRow = (shifts||[]).find(r => r.shift_date === entry.payload.shift_date);
@@ -1209,15 +1301,21 @@ async function pullFromSupabase(){
     } else if(entry.table === 'user_lists'){
       serverRow = (lists||[]).find(r => r.list_name === entry.payload.list_name);
     }
-    if(!serverRow) return true;
+    if(!serverRow) continue;
     const serverTs = serverRow.updated_at;
-    if(!serverTs) return true;
-    /* Keep entry only if its updated_at is strictly newer than server. */
-    return new Date(entryTs).getTime() > new Date(serverTs).getTime();
-  });
-  if(_survivor.length !== _queue.length){
-    saveSyncQueue(_survivor);
-    console.info('Step 4a LWW: dropped '+(_queue.length-_survivor.length)+' queue entries (server has newer updated_at)');
+    if(!serverTs) continue;
+    /* Server strictly newer → mark CONFLICT (Step 4b: surface, don't drop). */
+    if(new Date(serverTs).getTime() > new Date(entryTs).getTime()){
+      entry.state = 'CONFLICT';
+      entry.serverPayload = serverRow;
+      entry.conflictDetectedAt = Date.now();
+      _conflictCount++;
+      _changed = true;
+    }
+  }
+  if(_changed){
+    saveSyncQueue(_queue);
+    console.info('Step 4b: '+_conflictCount+' queue entries marked CONFLICT (server has newer updated_at)');
   }
 
   clearCurrentUserCache();
@@ -1265,7 +1363,9 @@ async function pullFromSupabase(){
     });
   }
 
-  hideSyncBanner();
+  /* Step 4b: surface any newly-marked CONFLICT entries via the banner.
+     _updateSyncBanner handles the no-queue case by calling hideSyncBanner. */
+  _updateSyncBanner(loadSyncQueue());
   renderCalendar();
 }
 

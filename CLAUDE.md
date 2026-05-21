@@ -255,12 +255,18 @@ Conflict          → updated_at comparison              deterministic
   `RETRY_DELAYS`, `_scheduleNextFlush`; schedule 0s/2s/4s/8s/16s →
   dead-letter; `online` event resets backoff to immediate)
 - ✅ `updated_at` LWW pruning on pull (Step 4a — `enqueue` auto-stamps
-  payload.updated_at; `pullFromSupabase` drops queue entries whose
-  server row has a newer timestamp; entries without updated_at are
-  kept as a safe fallback)
-- ❌ No conflict-resolution UI for CONFLICT state — silent drops
-  today; Step 4b will surface them with a "use local / use server"
-  dialog
+  payload.updated_at; `pullFromSupabase` compares against server's
+  updated_at; entries without updated_at are kept as a safe fallback)
+- ✅ Conflict-resolution UI for CONFLICT state (Step 4b — when the
+  pull finds server has a newer updated_at, the entry is marked
+  CONFLICT with a serverPayload snapshot instead of being silently
+  dropped; banner becomes a clickable "⚠️ พบ conflict N รายการ —
+  แตะเพื่อจัดการ"; `resolveConflictsInteractively` walks each
+  conflict with a "ใช้ local / ใช้ server" dialog; "ใช้ local"
+  bumps updated_at to now and demotes back to PENDING so the next
+  flush overwrites server)
+
+The migration is complete per the published protocol.
 
 The migration is in progress. Current code reflects the prior policy in
 many places. Treat this section as the **target** that all new edits
