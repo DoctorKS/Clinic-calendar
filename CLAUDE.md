@@ -230,7 +230,8 @@ Conflict          → updated_at comparison              deterministic
 
 - ✅ Background push to Supabase exists (`syncLocalToSupabase`)
 - ✅ Pull on open exists (`pullFromSupabase`)
-- ❌ No localStorage cache of app data yet — only `sb_session`
+- ✅ localStorage cache of app data (per-user write-through, Step 1
+  of the migration — see `_appCachePrefix`, `hydrateFromLocalCache`)
 - ❌ No sync queue (failed writes are lost silently)
 - ❌ No `updated_at` comparison on pull
 - ❌ No retry-with-backoff on failure

@@ -766,15 +766,62 @@ const sbUserId = () => _sbSession?.user?.id||null;
 const withUser = row => ({...row,user_id:sbUserId()});
 const appDataKey = key => key&&(key.startsWith('clinic_')||key.startsWith('hang_')||
   ['clinic_presets','proc_list','mach_list','trade_list'].includes(key));
+/* Local-First cache (CLAUDE.md): per-user write-through mirror of
+   appMemoryStore in localStorage. iOS Safari ITP can wipe localStorage
+   after ~7 days idle; Supabase remains the durable copy and the next
+   pull repopulates. Quota errors degrade silently to memory-only —
+   never block the user. */
+const _appCachePrefix = () => {
+  const uid = sbUserId();
+  return uid ? 'app_'+uid+'_' : null;
+};
 const appGetItem = key => Object.prototype.hasOwnProperty.call(appMemoryStore,key)?appMemoryStore[key]:null;
-const appSetItem = (key,val) => {appMemoryStore[key]=String(val);};
-const appRemoveItem = key => {delete appMemoryStore[key];};
+const appSetItem = (key,val) => {
+  const s = String(val);
+  appMemoryStore[key] = s;
+  const prefix = _appCachePrefix();
+  if(prefix && appDataKey(key)){
+    try{ localStorage.setItem(prefix+key, s); }catch(e){ /* quota or disabled — memory only */ }
+  }
+};
+const appRemoveItem = key => {
+  delete appMemoryStore[key];
+  const prefix = _appCachePrefix();
+  if(prefix && appDataKey(key)){
+    try{ localStorage.removeItem(prefix+key); }catch(e){}
+  }
+};
 const sbUserFilter = () => sbUserId()?'user_id=eq.'+encodeURIComponent(sbUserId()):'';
 function eachAppCacheKey(cb){
   Object.keys(appMemoryStore).forEach(key=>{if(appDataKey(key)) cb(key,key);});
 }
 function clearCurrentUserCache(){
   appMemoryStore={};
+  const prefix = _appCachePrefix();
+  if(!prefix) return;
+  try{
+    for(let i=localStorage.length-1; i>=0; i--){
+      const k = localStorage.key(i);
+      if(k && k.startsWith(prefix)) localStorage.removeItem(k);
+    }
+  }catch(e){}
+}
+/* Read all app_<userId>_* keys from localStorage into appMemoryStore.
+   Run on app open BEFORE pullFromSupabase so the UI sees cached state
+   immediately and survives a failed/slow pull. */
+function hydrateFromLocalCache(){
+  const prefix = _appCachePrefix();
+  if(!prefix) return;
+  try{
+    for(let i=0; i<localStorage.length; i++){
+      const k = localStorage.key(i);
+      if(!k || !k.startsWith(prefix)) continue;
+      const bareKey = k.slice(prefix.length);
+      if(!appDataKey(bareKey)) continue;
+      const val = localStorage.getItem(k);
+      if(val !== null) appMemoryStore[bareKey] = val;
+    }
+  }catch(e){ /* localStorage disabled — memory populates via pull */ }
 }
 
 async function sbFetch(path, opts={}){
@@ -827,8 +874,11 @@ function sbLoadSession(){
 }
 
 /* =====================================================
-   STORAGE HELPERS — in-memory app state + Supabase
-   App data is not persisted in localStorage; Supabase is the durable source.
+   STORAGE HELPERS — in-memory hot cache + localStorage mirror + Supabase
+   Local-First (see CLAUDE.md): every appSetItem writes through to
+   localStorage under per-user prefix. Supabase remains the durable
+   cross-device source; pull-on-open reconciles. Sync queue + retry
+   pending (Step 3 of the migration).
    ===================================================== */
 const sk=(y,m)=>`clinic_${y}_${m}`;
 const getData=(y,m)=>{try{return JSON.parse(appGetItem(sk(y,m))||'{}')}catch(e){return{}}};
@@ -1091,8 +1141,18 @@ async function handleForgotPassword(){
   }
 }
 async function unlockSupabaseAuth(){
+  /* Local-First (CLAUDE.md): hydrate from cache BEFORE the pull so the
+     user sees their last-known state immediately. If the pull fails
+     (offline / 500 / token issue), cached state stays visible — the app
+     doesn't go blank. */
+  hydrateFromLocalCache();
   document.body.classList.remove('auth-locked');
-  await pullFromSupabase();
+  try{
+    await pullFromSupabase();
+  }catch(e){
+    console.warn('pullFromSupabase failed on unlock:', e);
+    showSyncBanner('⚠️ ดึงข้อมูลจาก Supabase ไม่สำเร็จ — แสดงข้อมูลจาก cache ในเครื่อง · จะ sync ใหม่เมื่อเชื่อมต่อได้');
+  }
 }
 async function initSupabaseAuth(){
   if(readRecoverySession()){
