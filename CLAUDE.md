@@ -56,10 +56,15 @@ https://doctorks.github.io/Clinic-calendar/
 
 ---
 
-## ☁️ Cloud Storage (Supabase) — Required
+## ☁️ Cloud Sync (Supabase) — Required for multi-device
 
-แอปนี้ใช้ **Supabase เป็นที่เก็บข้อมูลหลัก** (ไม่เก็บใน localStorage แล้ว) —
-ต้องตั้งค่า Supabase ก่อนใช้งาน:
+แอปใช้ **Local-First architecture** — ทุกการบันทึกเก็บใน localStorage ทันที
+และ sync ไป Supabase เป็น background queue ในภายหลัง:
+- ทำงานได้แม้ offline / Wi-Fi ขาดหาย — ข้อมูลค้างใน queue และ sync เมื่อเชื่อมต่อได้
+- ต้อง login Supabase อย่างน้อยครั้งแรกเพื่อตั้ง user identity (ใช้เป็น key prefix)
+- ข้าม device ผ่าน Supabase: บันทึกที่ iPhone → sync ขึ้น cloud → เปิดที่ Mac → ดึงลงมา
+
+ตั้งค่า Supabase:
 
 1. สมัคร [supabase.com](https://supabase.com) (ฟรี)
 2. สร้าง project → รัน SQL schema จากไฟล์ `supabase_schema.sql`
@@ -68,7 +73,7 @@ https://doctorks.github.io/Clinic-calendar/
 const SB_URL = 'https://xxxxxxxxxxxx.supabase.co';
 const SB_KEY = 'your-anon-public-key';
 ```
-4. กดปุ่ม 🔑 **Login** ในแอป → เข้าสู่ระบบ → ข้อมูลโหลดจาก Supabase อัตโนมัติ
+4. กดปุ่ม 🔑 **Login** ในแอป → เข้าสู่ระบบ → ข้อมูล sync อัตโนมัติทั้งสองทาง
 
 ---
 
@@ -86,9 +91,10 @@ Clinic-calendar/
 
 ## 🔒 ความเป็นส่วนตัว · Privacy
 
-- ข้อมูลทำเวรทั้งหมดเก็บใน **Supabase project ของคุณเอง** (account ฟรี)
-- บน browser มีแค่ session token (key `sb_session` ใน localStorage)
-  — **ไม่มีข้อมูลทำเวรเก็บในเครื่อง**
+- ข้อมูลเก็บใน 2 ที่: **localStorage บนเครื่อง** (cache + sync queue ของ
+  user คุณเอง ภายใต้ prefix `app_<userId>_*`) และ **Supabase project ของ
+  คุณเอง** (account ฟรี — cross-device truth)
+- Multi-account บนเครื่องเดียวกัน: แยกข้อมูลผ่าน user-id prefix อัตโนมัติ
 - ไม่มี analytics, ไม่ส่งข้อมูลให้บุคคลที่สามนอกจาก Supabase ที่คุณตั้งเอง
 
 ---
@@ -105,13 +111,20 @@ Clinic-calendar/
 
 ## ⚠️ หมายเหตุสำคัญ · Important Notes
 
-**ต้องเข้าสู่ระบบ Supabase ก่อนใช้งาน** — แอปไม่เก็บข้อมูลออฟไลน์ในเครื่อง
+**Login Supabase อย่างน้อยครั้งแรก** เพื่อตั้ง user identity บนเครื่อง
+หลังจากนั้นใช้งาน offline ได้ — บันทึกเก็บในเครื่องและ queue จะ sync
+เมื่อเชื่อมต่อได้
 
-- ถ้า Supabase ขัดข้อง / offline → จะมีแถบแจ้งเตือนสีแดง (fail-loud)
-  และต้องลองอีกครั้งเมื่อเชื่อมต่อได้
-- ปุ่ม ⬆ ใช้ push ข้อมูลที่ค้างในเครื่องขึ้น Supabase
-  (เช่น หลัง Import JSON backup)
-- ปุ่ม ↻ โหลดแอปเวอร์ชันล่าสุดจาก server + ดึงข้อมูลใหม่จาก Supabase
+- ✅ **บันทึกได้แม้ offline** — UI ปิดทันที queue catches up เมื่อ online
+- 🔄 แถบสี amber `"sync ค้าง N รายการ"` = ข้อมูลในเครื่อง รอ sync เมื่อเชื่อมต่อ
+- ❌ แถบสีแดง `"ค้าง sync N รายการ — แตะ ⬆ เพื่อลองใหม่"` = หลัง retry 5 ครั้ง
+  ยังล้ม กดปุ่ม ⬆ เพื่อลอง resync แบบ manual
+- ปุ่ม ⬆ = force-resync ข้อมูลในเครื่อง + retry dead-letter entries
+- ปุ่ม ↻ = โหลดแอปเวอร์ชันล่าสุดจาก server + ดึงข้อมูลใหม่จาก Supabase
+  (จะเปลี่ยนเป็น cache-only ใน Step ถัดไป)
+
+**iOS Safari ITP** — Safari อาจ wipe localStorage หลังไม่ได้เปิดแอป ~7 วัน
+ข้อมูลใน Supabase ยังอยู่ครบ; เปิดแอปแล้ว pull ลงมาใหม่อัตโนมัติ
 
 **แนะนำ:** Export JSON สำรองไว้บางครั้ง เผื่อ Supabase project หาย
 
@@ -228,14 +241,19 @@ Conflict          → updated_at comparison              deterministic
 
 ### Current state vs. target state
 
-- ✅ Background push to Supabase exists (`syncLocalToSupabase`)
+- ✅ Background push to Supabase exists (`syncLocalToSupabase`, now
+  flushes via the sync queue)
 - ✅ Pull on open exists (`pullFromSupabase`)
 - ✅ localStorage cache of app data (per-user write-through, Step 1
   of the migration — see `_appCachePrefix`, `hydrateFromLocalCache`)
-- ❌ No sync queue (failed writes are lost silently)
-- ❌ No `updated_at` comparison on pull
-- ❌ No retry-with-backoff on failure
-- ❌ No online/offline detection
+- ✅ Sync queue (Step 2 of the migration — see `_syncQueueKey`,
+  `enqueue`, `flushSyncQueue`; all 6 savers enqueue instead of awaiting
+  Supabase; UI never blocks)
+- ✅ Online-event auto-flush (`window.addEventListener('online', ...)`)
+- ❌ No `updated_at` comparison on pull (Step 4)
+- ❌ No retry-with-exponential-backoff yet — current retry is "next
+  trigger" with fail-fast on first failure per flush (Step 3)
+- ❌ No conflict-resolution UI for CONFLICT state (Step 4)
 
 The migration is in progress. Current code reflects the prior policy in
 many places. Treat this section as the **target** that all new edits

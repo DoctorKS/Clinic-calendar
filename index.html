@@ -824,6 +824,126 @@ function hydrateFromLocalCache(){
   }catch(e){ /* localStorage disabled — memory populates via pull */ }
 }
 
+/* =====================================================
+   SYNC QUEUE (CLAUDE.md Step 2) — per-user FIFO queue of pending
+   Supabase writes. Lives in localStorage under sync_queue_<userId>
+   so it survives reload, offline periods, and crashes. Server is
+   still the durable truth; the queue is the durability layer for
+   in-flight writes between localStorage and Supabase.
+
+   Entry shape: { id, table, operation, payload, conflictKey,
+                  timestamp, retryCount, state }
+   state: 'PENDING' | 'ERROR' (SYNCING/SYNCED/CONFLICT reserved for
+   Step 3/4 — backoff and updated_at conflict resolution).
+   ===================================================== */
+const _syncQueueKey = () => {
+  const uid = sbUserId();
+  return uid ? 'sync_queue_'+uid : null;
+};
+let _flushInProgress = false;
+
+function loadSyncQueue(){
+  const k = _syncQueueKey();
+  if(!k) return [];
+  try{
+    const s = localStorage.getItem(k);
+    return s ? JSON.parse(s) : [];
+  }catch(e){ return []; }
+}
+
+function saveSyncQueue(queue){
+  const k = _syncQueueKey();
+  if(!k) return;
+  try{
+    localStorage.setItem(k, JSON.stringify(queue));
+  }catch(e){
+    /* Queue write failed (quota or disabled). Loud — data at risk. */
+    showSyncBanner('❌ ไม่สามารถบันทึก sync queue (localStorage เต็มหรือถูกปิด) — กรุณาตรวจสอบ');
+  }
+}
+
+function enqueue(table, operation, payload, conflictKey){
+  if(!_syncQueueKey()) return null;
+  const queue = loadSyncQueue();
+  const entry = {
+    id: 'sq_'+Date.now()+'_'+Math.random().toString(36).slice(2,8),
+    table, operation, payload,
+    conflictKey: conflictKey || '',
+    timestamp: Date.now(),
+    retryCount: 0,
+    state: 'PENDING'
+  };
+  queue.push(entry);
+  saveSyncQueue(queue);
+  return entry.id;
+}
+
+function _updateSyncBanner(queue){
+  const errs = queue.filter(e => e.state === 'ERROR').length;
+  const pend = queue.length - errs;
+  if(errs > 0){
+    showSyncBanner('❌ ค้าง sync '+errs+' รายการ — แตะ ⬆ เพื่อลองใหม่');
+  } else if(pend > 0){
+    showSyncBanner('🔄 sync ค้าง '+pend+' รายการ — กำลังรอสัญญาณ');
+  } else {
+    hideSyncBanner();
+  }
+}
+
+/* Walk PENDING entries in FIFO order. Reload queue from localStorage
+   on every step so concurrent enqueue() calls (from other saves during
+   a flush) are not lost. Fail-fast on first network error — Step 3
+   will add per-entry exponential backoff. */
+async function flushSyncQueue(){
+  if(_flushInProgress) return;
+  if(!sbReady()) return;
+  _flushInProgress = true;
+  try{
+    const startQueue = loadSyncQueue();
+    const pendingIds = startQueue.filter(e => e.state === 'PENDING').map(e => e.id);
+    for(const id of pendingIds){
+      let q = loadSyncQueue();
+      const idx = q.findIndex(e => e.id === id);
+      if(idx === -1) continue;
+      const entry = q[idx];
+      if(entry.state !== 'PENDING') continue;
+      try{
+        if(entry.operation === 'upsert'){
+          await sbUpsert(entry.table, entry.payload, entry.conflictKey);
+        } else if(entry.operation === 'delete'){
+          await sbDelete(entry.table, (entry.payload && entry.payload.filter) || '');
+        }
+        /* Success — remove this specific entry from the latest queue */
+        q = loadSyncQueue();
+        const i2 = q.findIndex(e => e.id === id);
+        if(i2 !== -1){
+          q.splice(i2, 1);
+          saveSyncQueue(q);
+        }
+      }catch(e){
+        q = loadSyncQueue();
+        const i2 = q.findIndex(e => e.id === id);
+        if(i2 !== -1){
+          q[i2].retryCount = (q[i2].retryCount || 0) + 1;
+          q[i2].state = q[i2].retryCount >= 5 ? 'ERROR' : 'PENDING';
+          saveSyncQueue(q);
+        }
+        /* Fail-fast: stop after first failure to avoid hammering a
+           down server. The next flush trigger picks up where we left off. */
+        break;
+      }
+    }
+    _updateSyncBanner(loadSyncQueue());
+  } finally {
+    _flushInProgress = false;
+  }
+}
+
+/* Auto-flush when connectivity returns. */
+if(typeof window !== 'undefined'){
+  window.addEventListener('online', () => { flushSyncQueue(); });
+}
+
 async function sbFetch(path, opts={}){
   if(!sbReady()) return null;
   const res = await fetch(SB_URL + path, {
@@ -884,16 +1004,17 @@ const sk=(y,m)=>`clinic_${y}_${m}`;
 const getData=(y,m)=>{try{return JSON.parse(appGetItem(sk(y,m))||'{}')}catch(e){return{}}};
 
 async function saveData(y,m,d){
+  /* Local-First (CLAUDE.md Step 2): cache write is instant + durable.
+     Enqueue Supabase upserts; flush runs in background. UI never blocks. */
   appSetItem(sk(y,m), JSON.stringify(d));
   if(!sbReady()){
-    showSyncBanner('⚠️ ยังไม่ได้เข้าสู่ระบบ Supabase — ข้อมูลยังไม่ถูกบันทึกถาวร');
-    return false;
+    showSyncBanner('⚠️ ยังไม่ได้เข้าสู่ระบบ Supabase — ข้อมูลอยู่ในเครื่อง จะ sync เมื่อ login');
+    return true;
   }
-  // sync each day entry to Supabase shifts table
-  const promises = Object.entries(d).map(([day, dd])=>{
+  Object.entries(d).forEach(([day, dd])=>{
     if(!dd||!dd.total) return;
     const dateStr = `${y}-${String(m+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
-    return sbUpsert('shifts',{
+    enqueue('shifts','upsert',{
       shift_date: dateStr, clinic_id: dd.clinicId||null,
       condition: dd.condition||'', hour_rate: dd.hourRate||0, hours: dd.hours||0,
       proc_pct: dd.procPct||0, mach_pct: dd.machPct||0,
@@ -903,78 +1024,76 @@ async function saveData(y,m,d){
       paid_sitting: !!dd.paidSitting, paid_df: !!dd.paidDf
     },'user_id,shift_date');
   });
-  const results=await Promise.allSettled(promises.filter(Boolean));
-  const failed=results.some(r=>r.status==='rejected');
-  if(failed){
-    showSyncBanner('❌ บันทึกขึ้น Supabase ไม่สำเร็จ — กรุณาลองกดบันทึกอีกครั้ง');
-    return false;
-  }
-  hideSyncBanner();
+  flushSyncQueue();  /* fire-and-forget */
   return true;
 }
 
 const getClinics=()=>{try{return JSON.parse(appGetItem('clinic_presets')||'[]')}catch(e){return[]}};
 async function saveClinics(arr){
+  /* Local-First (CLAUDE.md Step 2): cache + enqueue + return. */
   appSetItem('clinic_presets', JSON.stringify(arr));
   if(!sbReady()){
-    showSyncBanner('⚠️ ยังไม่ได้เข้าสู่ระบบ Supabase — การตั้งค่าคลินิกยังไม่ถูกบันทึกถาวร');
-    return false;
+    showSyncBanner('⚠️ ยังไม่ได้เข้าสู่ระบบ Supabase — การตั้งค่าคลินิกอยู่ในเครื่อง จะ sync เมื่อ login');
+    return true;
   }
-  const results=await Promise.allSettled(arr.map(cl=>sbUpsert('clinics',{
+  arr.forEach(cl=>enqueue('clinics','upsert',{
     id:cl.id, name:cl.name, abbr:cl.abbr, color:cl.color,
     hour_rate:cl.hourRate||'', hours:cl.hours||'', lump:cl.lump||'',
     proc_pct:cl.procPct||'', mach_pct:cl.machPct||'', condition:cl.condition||''
-  },'user_id,id')));
-  if(results.some(r=>r.status==='rejected')){
-    showSyncBanner('❌ บันทึกคลินิกขึ้น Supabase ไม่สำเร็จ — กรุณาลองอีกครั้ง');
-    return false;
-  }
-  hideSyncBanner();
+  },'user_id,id'));
+  flushSyncQueue();
   return true;
 }
 
 const getProcList=()=>{try{const s=JSON.parse(appGetItem('proc_list')||'[]');return s.length?s:[...DEFAULT_PROCS]}catch(e){return[...DEFAULT_PROCS]}};
 async function saveProcList(arr){
+  /* Local-First (CLAUDE.md Step 2): cache + enqueue + return. */
   appSetItem('proc_list',JSON.stringify(arr));
-  if(!sbReady()) return false;
-  try{await sbUpsert('user_lists',{list_name:'proc_list',items:arr},'user_id,list_name');return true;}
-  catch(e){showSyncBanner('❌ บันทึกรายการหัตถการขึ้น Supabase ไม่สำเร็จ');return false;}
+  if(!sbReady()) return true;
+  enqueue('user_lists','upsert',{list_name:'proc_list',items:arr},'user_id,list_name');
+  flushSyncQueue();
+  return true;
 }
 
 const getMachList=()=>{try{const s=JSON.parse(appGetItem('mach_list')||'[]');return s.length?s:[...DEFAULT_MACHS]}catch(e){return[...DEFAULT_MACHS]}};
 async function saveMachList(arr){
+  /* Local-First (CLAUDE.md Step 2): cache + enqueue + return. */
   appSetItem('mach_list',JSON.stringify(arr));
-  if(!sbReady()) return false;
-  try{await sbUpsert('user_lists',{list_name:'mach_list',items:arr},'user_id,list_name');return true;}
-  catch(e){showSyncBanner('❌ บันทึกรายการเครื่องขึ้น Supabase ไม่สำเร็จ');return false;}
+  if(!sbReady()) return true;
+  enqueue('user_lists','upsert',{list_name:'mach_list',items:arr},'user_id,list_name');
+  flushSyncQueue();
+  return true;
 }
 
 const getTradeList=()=>{try{return JSON.parse(appGetItem('trade_list')||'[]')}catch(e){return[]}};
 const saveTradeToList=name=>{
+  /* Local-First (CLAUDE.md Step 2): cache + enqueue. Already non-blocking. */
   if(!name||name.length<2)return;
   const l=getTradeList();
-  if(!l.includes(name)){l.unshift(name);if(l.length>100)l.pop();appSetItem('trade_list',JSON.stringify(l));}
-  if(sbReady()) sbUpsert('user_lists',{list_name:'trade_list',items:l},'user_id,list_name')
-    .catch(()=>showSyncBanner('❌ บันทึกชื่อทางการค้าขึ้น Supabase ไม่สำเร็จ'));
+  if(!l.includes(name)){
+    l.unshift(name);
+    if(l.length>100)l.pop();
+    appSetItem('trade_list',JSON.stringify(l));
+    if(sbReady()){
+      enqueue('user_lists','upsert',{list_name:'trade_list',items:l},'user_id,list_name');
+      flushSyncQueue();
+    }
+  }
 };
 
 /* --- Hanging fee --- */
 const skHang=(y,m)=>`hang_${y}_${m}`;
 const getHanging=(y,m)=>{const v=appGetItem(skHang(y,m));return v!==null?parseFloat(v)||0:0;};
 async function saveHanging(y,m,val){
+  /* Local-First (CLAUDE.md Step 2): cache + enqueue + return. */
   appSetItem(skHang(y,m),val);
   if(!sbReady()){
-    showSyncBanner('⚠️ ยังไม่ได้เข้าสู่ระบบ Supabase — ค่าแขวนป้ายยังไม่ถูกบันทึกถาวร');
-    return false;
-  }
-  try{
-    await sbUpsert('hanging_fees',{year_month:`${y}-${m}`, amount:parseFloat(val)||0},'user_id,year_month');
-    hideSyncBanner();
+    showSyncBanner('⚠️ ยังไม่ได้เข้าสู่ระบบ Supabase — ค่าแขวนป้ายอยู่ในเครื่อง จะ sync เมื่อ login');
     return true;
-  }catch(e){
-    showSyncBanner('❌ บันทึกค่าแขวนป้ายขึ้น Supabase ไม่สำเร็จ');
-    return false;
   }
+  enqueue('hanging_fees','upsert',{year_month:`${y}-${m}`, amount:parseFloat(val)||0},'user_id,year_month');
+  flushSyncQueue();
+  return true;
 }
 
 /* =====================================================
@@ -1141,12 +1260,15 @@ async function handleForgotPassword(){
   }
 }
 async function unlockSupabaseAuth(){
-  /* Local-First (CLAUDE.md): hydrate from cache BEFORE the pull so the
-     user sees their last-known state immediately. If the pull fails
-     (offline / 500 / token issue), cached state stays visible — the app
-     doesn't go blank. */
+  /* Local-First (CLAUDE.md): order matters.
+     1. Hydrate cache → UI has data instantly.
+     2. Flush any pending sync queue upstream → otherwise the pull's
+        clear-and-replace would wipe local entries the queue hasn't
+        had a chance to upload yet.
+     3. Pull from Supabase → fresh server state overrides local. */
   hydrateFromLocalCache();
   document.body.classList.remove('auth-locked');
+  await flushSyncQueue();
   try{
     await pullFromSupabase();
   }catch(e){
@@ -1912,7 +2034,10 @@ async function saveDay(){
     patients:savedPats,machs:savedMachs,total,
     paidSitting:!!prevDay.paidSitting,paidDf:!!prevDay.paidDf};
   const saved=await saveData(curYear,curMonth,data);
-  if(!saved) return; /* saveData showed the failure banner — keep sheet open to retry */
+  /* DEAD CODE under Local-First Step 2: saveData now always returns true
+     (cache write succeeds; Supabase push is queued, not awaited). Kept
+     for safety until Step 3 confirms the queue is reliable; remove then. */
+  if(!saved) return;
   /* save unique trade names for autocomplete */
   savedPats.forEach(pat=>(pat.procs||[]).forEach(pr=>{if(pr.tradeName)saveTradeToList(pr.tradeName);}));
   closeSheet();renderCalendar();
@@ -2007,7 +2132,8 @@ async function saveClinic(){
   if(editingClinicId){const idx=clinics.findIndex(c=>c.id===editingClinicId);if(idx>=0)clinics[idx]={...clinics[idx],...fields};}
   else{clinics.push({id:'cl_'+Date.now(),...fields});}
   const ok=await saveClinics(clinics);
-  if(!ok){renderClinicList();return;} /* banner shown — keep form open to retry */
+  /* DEAD CODE under Local-First Step 2: saveClinics now always returns true. */
+  if(!ok){renderClinicList();return;}
   editingClinicId=null;
   switchMgrTab('list');renderClinicList();
 }
@@ -2290,6 +2416,10 @@ async function toggleIncomePaid(y,m,day,field,el){
   const checked=el.checked;
   data[day][field]=checked;
   const saved=await saveData(y,m,data);
+  /* DEAD CODE under Local-First Step 2: saveData always returns true.
+     Original behavior: revert checkbox + cache on Supabase save failure
+     so the UI stayed in sync with the server. Under the new policy the
+     queue absorbs failures; UI need not revert. Remove in Step 2 follow-up. */
   if(!saved){
     data[day][field]=!checked;
     appSetItem(sk(y,m),JSON.stringify(data));
@@ -2427,6 +2557,11 @@ async function restoreFromCloud(){
 }
 
 async function syncLocalToSupabase(){
+  /* Local-First (CLAUDE.md Step 2): force-resync. Enqueue everything
+     currently in cache, then flush the queue. sbUpsert is idempotent
+     on conflict key — re-pushing synced data is wasted bytes but never
+     incorrect. Use case: after JSON import, or as a manual retry when
+     the queue has dead-letter (ERROR) entries the user wants to retry. */
   const btn=document.getElementById('headerSyncBtn');
   if(!sbReady()){
     showSyncBanner('ยังไม่ได้เข้าสู่ระบบ Supabase');
@@ -2437,29 +2572,55 @@ async function syncLocalToSupabase(){
     btn.disabled=true;
     btn.textContent='...';
   }
-  showSyncBanner('🔄 กำลังอัปโหลดข้อมูลในเครื่องขึ้น Supabase...');
   try{
-    const tasks=[];
-    tasks.push(saveClinics(getClinics()));
-    tasks.push(saveProcList(getProcList()));
-    tasks.push(saveMachList(getMachList()));
-    tasks.push(sbUpsert('user_lists',{list_name:'trade_list',items:getTradeList()},'user_id,list_name'));
+    /* First: reset ERROR entries to PENDING so this manual retry actually
+       retries the dead letters (otherwise flushSyncQueue skips them). */
+    const reset=loadSyncQueue().map(e=>e.state==='ERROR'?{...e,state:'PENDING',retryCount:0}:e);
+    saveSyncQueue(reset);
+    /* Then: enqueue current cache state for force-resync. */
+    enqueue('user_lists','upsert',{list_name:'proc_list',items:getProcList()},'user_id,list_name');
+    enqueue('user_lists','upsert',{list_name:'mach_list',items:getMachList()},'user_id,list_name');
+    enqueue('user_lists','upsert',{list_name:'trade_list',items:getTradeList()},'user_id,list_name');
+    getClinics().forEach(cl=>enqueue('clinics','upsert',{
+      id:cl.id, name:cl.name, abbr:cl.abbr, color:cl.color,
+      hour_rate:cl.hourRate||'', hours:cl.hours||'', lump:cl.lump||'',
+      proc_pct:cl.procPct||'', mach_pct:cl.machPct||'', condition:cl.condition||''
+    },'user_id,id'));
     eachAppCacheKey((baseKey)=>{
       const parts=baseKey.split('_');
       const y=parseInt(parts[1],10), m=parseInt(parts[2],10);
-      if(baseKey.startsWith('clinic_')&&Number.isFinite(y)&&Number.isFinite(m))
-        tasks.push(saveData(y,m,getData(y,m)));
-      else if(baseKey.startsWith('hang_')&&Number.isFinite(y)&&Number.isFinite(m))
-        tasks.push(saveHanging(y,m,getHanging(y,m)));
+      if(!Number.isFinite(y)||!Number.isFinite(m)) return;
+      if(baseKey.startsWith('clinic_')){
+        const dat=getData(y,m);
+        Object.entries(dat).forEach(([day,dd])=>{
+          if(!dd||!dd.total) return;
+          const dateStr=`${y}-${String(m+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+          enqueue('shifts','upsert',{
+            shift_date: dateStr, clinic_id: dd.clinicId||null,
+            condition: dd.condition||'', hour_rate: dd.hourRate||0, hours: dd.hours||0,
+            proc_pct: dd.procPct||0, mach_pct: dd.machPct||0,
+            sitting: dd.sitting||0, proc_fee: dd.procFee||0, mach_fee: dd.machFee||0,
+            lump: dd.lump||0, total: dd.total||0,
+            patients: dd.patients||[], machs: dd.machs||[],
+            paid_sitting: !!dd.paidSitting, paid_df: !!dd.paidDf
+          },'user_id,shift_date');
+        });
+      } else if(baseKey.startsWith('hang_')){
+        enqueue('hanging_fees','upsert',{year_month:`${y}-${m}`, amount:parseFloat(getHanging(y,m))||0},'user_id,year_month');
+      }
     });
-    const results=await Promise.allSettled(tasks);
-    const failed=results.some(r=>r.status==='rejected'||r.value===false);
-    if(failed){
-      showSyncBanner('❌ อัปโหลดบางส่วนไม่สำเร็จ — กรุณาลองอีกครั้ง');
-      setTimeout(hideSyncBanner,3000);
-    }else{
+    const total=loadSyncQueue().length;
+    showSyncBanner('🔄 กำลังอัปโหลด '+total+' รายการขึ้น Supabase...');
+    await flushSyncQueue();
+    const remaining=loadSyncQueue();
+    const errs=remaining.filter(e=>e.state==='ERROR').length;
+    if(remaining.length===0){
       showSyncBanner('✅ อัปโหลดข้อมูลขึ้น Supabase สำเร็จ');
       setTimeout(hideSyncBanner,1600);
+    } else if(errs>0){
+      showSyncBanner('❌ อัปโหลดไม่สำเร็จ '+errs+' รายการ — ตรวจสอบการเชื่อมต่อ');
+    } else {
+      showSyncBanner('⚠️ ค้าง '+remaining.length+' รายการ — กำลังรอสัญญาณ');
     }
   }catch(e){
     showSyncBanner('❌ Sync ไม่สำเร็จ: '+(e.message||'Supabase sync failed'));
