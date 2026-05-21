@@ -1265,10 +1265,19 @@ async function unlockSupabaseAuth(){
      2. Flush any pending sync queue upstream → otherwise the pull's
         clear-and-replace would wipe local entries the queue hasn't
         had a chance to upload yet.
-     3. Pull from Supabase → fresh server state overrides local. */
+     3. Pull from Supabase → fresh server state overrides local,
+        UNLESS the user just clicked ↻ (cache-only reload, Step 4). */
   hydrateFromLocalCache();
   document.body.classList.remove('auth-locked');
   await flushSyncQueue();
+  /* One-shot flag set by reloadApp(); consume immediately so subsequent
+     reloads (e.g. browser Ctrl+R) get the normal pull. */
+  let cacheOnly = false;
+  try{
+    cacheOnly = sessionStorage.getItem('cacheOnlyReload') === '1';
+    if(cacheOnly) sessionStorage.removeItem('cacheOnlyReload');
+  }catch(e){}
+  if(cacheOnly) return;
   try{
     await pullFromSupabase();
   }catch(e){
@@ -2634,17 +2643,20 @@ async function syncLocalToSupabase(){
 }
 
 function reloadApp(){
-  /* The app is a single static index.html with no service worker, so the
-     browser (and iOS home-screen webview) can serve a stale cached copy.
-     Reload with a fresh query string to force fetching the latest deploy.
-     On load the app re-pulls from Supabase, so this also refreshes data. */
-  if(!confirm('โหลดแอปเวอร์ชันล่าสุดใหม่?\nข้อมูลที่ยังไม่ได้ Sync ขึ้น Supabase จะหาย — ถ้ามีการแก้ไขค้างอยู่ ให้กด ⬆ Sync ก่อน'))
+  /* Local-First Step 4: cache-only refresh. The app is a single static
+     index.html with no service worker, so the browser (and iOS home-screen
+     webview) can serve a stale cached copy. Reload with a fresh query
+     string to force fetching the latest deploy. The sessionStorage flag
+     tells unlockSupabaseAuth to skip pullFromSupabase on this reload —
+     cache + sync queue both survive in localStorage, so no data loss. */
+  if(!confirm('โหลดแอปเวอร์ชันล่าสุดใหม่?\nข้อมูลในเครื่องและ sync queue จะถูกเก็บไว้'))
     return;
   const btn=document.getElementById('headerRefreshBtn');
   if(btn){
     btn.disabled=true;
     btn.textContent='...';
   }
+  try{ sessionStorage.setItem('cacheOnlyReload','1'); }catch(e){}
   location.replace(location.pathname+'?v='+Date.now());
 }
 (function setHeaderH(){

@@ -120,8 +120,9 @@ Clinic-calendar/
 - ❌ แถบสีแดง `"ค้าง sync N รายการ — แตะ ⬆ เพื่อลองใหม่"` = หลัง retry 5 ครั้ง
   ยังล้ม กดปุ่ม ⬆ เพื่อลอง resync แบบ manual
 - ปุ่ม ⬆ = force-resync ข้อมูลในเครื่อง + retry dead-letter entries
-- ปุ่ม ↻ = โหลดแอปเวอร์ชันล่าสุดจาก server + ดึงข้อมูลใหม่จาก Supabase
-  (จะเปลี่ยนเป็น cache-only ใน Step ถัดไป)
+- ปุ่ม ↻ = โหลดแอปเวอร์ชันล่าสุดจาก server (cache + sync queue ไม่หาย,
+  ไม่ดึงข้อมูลใหม่จาก Supabase — ใช้ปุ่ม ⬆ ถ้าต้องการ resync ขึ้น cloud,
+  หรือ logout/login ถ้าต้องการ pull ลงมาใหม่)
 
 **iOS Safari ITP** — Safari อาจ wipe localStorage หลังไม่ได้เปิดแอป ~7 วัน
 ข้อมูลใน Supabase ยังอยู่ครบ; เปิดแอปแล้ว pull ลงมาใหม่อัตโนมัติ
