@@ -117,12 +117,16 @@ Clinic-calendar/
 
 - ✅ **บันทึกได้แม้ offline** — UI ปิดทันที queue catches up เมื่อ online
 - 🔄 แถบสี amber `"sync ค้าง N รายการ"` = ข้อมูลในเครื่อง รอ sync เมื่อเชื่อมต่อ
+- ⚠️ แถบสีเหลือง `"พบ conflict N รายการ — แตะเพื่อจัดการ"` = แก้บน 2 device
+  พร้อมกัน → server มี version ใหม่กว่า → แตะ banner เพื่อเลือก local/server
 - ❌ แถบสีแดง `"ค้าง sync N รายการ — แตะ ⬆ เพื่อลองใหม่"` = หลัง retry 5 ครั้ง
   ยังล้ม กดปุ่ม ⬆ เพื่อลอง resync แบบ manual
 - ปุ่ม ⬆ = force-resync ข้อมูลในเครื่อง + retry dead-letter entries
 - ปุ่ม ↻ = โหลดแอปเวอร์ชันล่าสุดจาก server (cache + sync queue ไม่หาย,
   ไม่ดึงข้อมูลใหม่จาก Supabase — ใช้ปุ่ม ⬆ ถ้าต้องการ resync ขึ้น cloud,
   หรือ logout/login ถ้าต้องการ pull ลงมาใหม่)
+- ปุ่ม 🩺 = ตรวจ sync ระหว่างเครื่องและ Supabase. มีจุดแดงเล็กๆ เมื่อพบ drift
+  (อัตโนมัติเช็คทุก 5 นาทีตอนแอปเปิด). แตะเพื่อดู report เต็มใน modal.
 
 **iOS Safari ITP** — Safari อาจ wipe localStorage หลังไม่ได้เปิดแอป ~7 วัน
 ข้อมูลใน Supabase ยังอยู่ครบ; เปิดแอปแล้ว pull ลงมาใหม่อัตโนมัติ
