@@ -991,6 +991,164 @@ async function resolveConflictsInteractively(){
   flushSyncQueue();
 }
 
+/* Diagnostic: compare local cache + sync queue against Supabase and
+   report any drift. Read-only — does not modify cache, queue, or
+   server. Exposed as window.checkSyncStatus() for DevTools use. */
+function _comparableClinic(c){
+  return JSON.stringify({
+    name: c.name || '', abbr: c.abbr || '', color: c.color || '',
+    hourRate: c.hourRate ?? c.hour_rate ?? '',
+    hours:    c.hours    ?? '',
+    lump:     c.lump     ?? '',
+    procPct:  c.procPct  ?? c.proc_pct ?? '',
+    machPct:  c.machPct  ?? c.mach_pct ?? '',
+    condition: c.condition || ''
+  });
+}
+function _comparableShift(s){
+  /* Scalar fields only — patients/machs arrays excluded because
+     PostgREST jsonb may return keys in a different order than the
+     client wrote them, causing JSON.stringify false positives. */
+  return JSON.stringify({
+    clinicId:  s.clinicId  ?? s.clinic_id  ?? '',
+    condition: s.condition ?? '',
+    hourRate:  s.hourRate  ?? s.hour_rate,
+    hours:     s.hours,
+    procPct:   s.procPct   ?? s.proc_pct,
+    machPct:   s.machPct   ?? s.mach_pct,
+    sitting:   s.sitting,
+    procFee:   s.procFee   ?? s.proc_fee,
+    machFee:   s.machFee   ?? s.mach_fee,
+    lump:      s.lump,
+    total:     s.total,
+    paidSitting: !!(s.paidSitting ?? s.paid_sitting),
+    paidDf:      !!(s.paidDf      ?? s.paid_df)
+  });
+}
+async function checkSyncStatus(){
+  if(!sbReady()){
+    console.warn('checkSyncStatus: not logged in to Supabase');
+    return null;
+  }
+  /* 1. Queue stats. */
+  const queue = loadSyncQueue();
+  const queueStats = {
+    pending:  queue.filter(e => e.state === 'PENDING').length,
+    error:    queue.filter(e => e.state === 'ERROR').length,
+    conflict: queue.filter(e => e.state === 'CONFLICT').length,
+    total:    queue.length
+  };
+  /* 2. Fetch server state. */
+  let cls, shifts, hangs, lists;
+  let serverFetchError = null;
+  try{
+    cls    = await sbSelect('clinics','order=created_at.asc');
+    shifts = await sbSelect('shifts','order=shift_date.asc');
+    hangs  = await sbSelect('hanging_fees');
+    lists  = await sbSelect('user_lists');
+  }catch(e){
+    serverFetchError = e.message || String(e);
+    console.error('checkSyncStatus: server fetch failed:', e);
+    return { inSync:false, queueStats, tables:null, serverFetchError };
+  }
+  cls    = cls    || [];
+  shifts = shifts || [];
+  hangs  = hangs  || [];
+  lists  = lists  || [];
+  /* 3. Build local maps keyed the same way as server primary keys. */
+  const localClinics = {};
+  getClinics().forEach(c => { localClinics[c.id] = c; });
+  const localShifts = {};
+  eachAppCacheKey((key) => {
+    if(!key.startsWith('clinic_')) return;
+    const parts = key.split('_');
+    const y = parseInt(parts[1], 10), m = parseInt(parts[2], 10);
+    if(!Number.isFinite(y) || !Number.isFinite(m)) return;
+    const dat = getData(y, m);
+    Object.entries(dat).forEach(([day, dd]) => {
+      if(!dd || !dd.total) return;
+      const dateStr = `${y}-${String(m+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+      localShifts[dateStr] = dd;
+    });
+  });
+  const localHanging = {};
+  eachAppCacheKey((key) => {
+    if(!key.startsWith('hang_')) return;
+    const parts = key.split('_');
+    const y = parseInt(parts[1], 10), m = parseInt(parts[2], 10);
+    if(!Number.isFinite(y) || !Number.isFinite(m)) return;
+    const amt = getHanging(y, m);
+    if(amt) localHanging[`${y}-${m}`] = amt;
+  });
+  const localLists = {
+    proc_list:  getProcList(),
+    mach_list:  getMachList(),
+    trade_list: getTradeList()
+  };
+  /* 4. Build server maps + diff per table. */
+  const serverClinics = {};
+  cls.forEach(c => { serverClinics[c.id] = c; });
+  const serverShifts = {};
+  shifts.forEach(s => { serverShifts[s.shift_date] = s; });
+  const serverHanging = {};
+  hangs.forEach(h => { serverHanging[h.year_month] = h.amount || 0; });
+  const serverLists = {};
+  lists.forEach(l => { serverLists[l.list_name] = l.items || []; });
+  function diff(localMap, serverMap, compareFn){
+    const localKeys  = new Set(Object.keys(localMap));
+    const serverKeys = new Set(Object.keys(serverMap));
+    const localOnly  = [...localKeys ].filter(k => !serverKeys.has(k));
+    const serverOnly = [...serverKeys].filter(k => !localKeys.has(k));
+    const divergent  = [];
+    if(compareFn){
+      for(const k of localKeys){
+        if(!serverKeys.has(k)) continue;
+        if(!compareFn(localMap[k], serverMap[k])) divergent.push(k);
+      }
+    }
+    return {
+      local:  localKeys.size,
+      server: serverKeys.size,
+      localOnly, serverOnly, divergent
+    };
+  }
+  const tables = {
+    clinics:      diff(localClinics, serverClinics, (a,b) => _comparableClinic(a) === _comparableClinic(b)),
+    shifts:       diff(localShifts,  serverShifts,  (a,b) => _comparableShift(a)  === _comparableShift(b)),
+    hanging_fees: diff(localHanging, serverHanging, (a,b) => Math.abs((parseFloat(a)||0) - (parseFloat(b)||0)) < 0.001),
+    user_lists:   diff(localLists,   serverLists,   (a,b) => JSON.stringify(a||[]) === JSON.stringify(b||[]))
+  };
+  /* 5. Compute verdict and log. */
+  let drifts = queueStats.total;
+  for(const t of Object.values(tables)){
+    drifts += t.localOnly.length + t.serverOnly.length + t.divergent.length;
+  }
+  const inSync = drifts === 0;
+  const report = { inSync, queueStats, tables, serverFetchError };
+  console.log('=== Sync Status Check ===');
+  console.log(inSync ? '✅ Local และ Supabase ตรงกัน' : '⚠️ มี drift รวม '+drifts+' รายการ');
+  console.log('Queue:', queueStats);
+  const tableSummary = {};
+  for(const [name, t] of Object.entries(tables)){
+    tableSummary[name] = {
+      local: t.local, server: t.server,
+      localOnly: t.localOnly.length,
+      serverOnly: t.serverOnly.length,
+      divergent: t.divergent.length
+    };
+  }
+  console.table(tableSummary);
+  for(const [name, t] of Object.entries(tables)){
+    if(t.localOnly.length)  console.log(name+'.localOnly:',  t.localOnly);
+    if(t.serverOnly.length) console.log(name+'.serverOnly:', t.serverOnly);
+    if(t.divergent.length)  console.log(name+'.divergent:',  t.divergent);
+  }
+  return report;
+}
+if(typeof window !== 'undefined'){
+  window.checkSyncStatus = checkSyncStatus;
+}
+
 /* Step 3 — per-entry exponential backoff. After failure attempt N
    (N in 1..4), the entry's nextAttemptAt is set to now + RETRY_DELAYS[N].
    A single shared timer fires at the soonest due time and triggers a
