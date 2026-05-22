@@ -53,8 +53,9 @@ body{font-family:'Sarabun',sans-serif;background:var(--bg);color:var(--text);min
 .hdr-btns{display:flex;gap:6px;flex-shrink:0}
 .add-clinic-btn{background:rgba(255,255,255,.18);border:none;color:#fff;padding:7px 10px;border-radius:20px;font-size:11px;font-weight:600;font-family:'Sarabun',sans-serif;cursor:pointer;white-space:nowrap}
 .add-clinic-btn:active{background:rgba(255,255,255,.32)}
-.header-refresh-btn{width:31px;height:31px;padding:0!important;border-radius:50%!important;font-size:16px!important;line-height:1;display:flex;align-items:center;justify-content:center}
+.header-refresh-btn{width:31px;height:31px;padding:0!important;border-radius:50%!important;font-size:16px!important;line-height:1;display:flex;align-items:center;justify-content:center;position:relative}
 .header-refresh-btn:disabled{opacity:.55;cursor:wait}
+.header-refresh-btn.has-drift::after{content:'';position:absolute;top:1px;right:1px;width:9px;height:9px;background:#e74c3c;border-radius:50%;border:1.5px solid #1a6b5a;pointer-events:none}
 .month-nav{display:flex;align-items:center;gap:16px}
 .nav-btn{background:rgba(255,255,255,.18);border:none;color:#fff;width:36px;height:36px;border-radius:50%;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center}
 .nav-btn:active{background:rgba(255,255,255,.32)}
@@ -417,6 +418,7 @@ body.auth-locked .auth-overlay{display:flex}
     <div class="hdr-btns">
       <button class="add-clinic-btn header-refresh-btn" id="headerSyncBtn" type="button" title="Sync ข้อมูลในเครื่องขึ้น Supabase" aria-label="Sync ข้อมูลในเครื่องขึ้น Supabase" onclick="syncLocalToSupabase()">⬆</button>
       <button class="add-clinic-btn header-refresh-btn" id="headerRefreshBtn" type="button" title="โหลดแอปเวอร์ชันล่าสุดใหม่" aria-label="โหลดแอปเวอร์ชันล่าสุดใหม่" onclick="reloadApp()">↻</button>
+      <button class="add-clinic-btn header-refresh-btn" id="headerDiagBtn" type="button" title="ตรวจ sync ระหว่างเครื่องและ Supabase" aria-label="ตรวจ sync" onclick="openDiagModal()">🩺</button>
       <button class="add-clinic-btn" onclick="openBackup()">💾 Backup</button>
       <button class="add-clinic-btn" onclick="openClinicMgr()">＋ คลินิก</button>
       <button class="add-clinic-btn" onclick="logoutLocalAuth()">ล็อกออก</button>
@@ -721,6 +723,24 @@ body.auth-locked .auth-overlay{display:flex}
       <button class="btn" style="background:#e8f0fe;color:#2255cc" onclick="backToIncPicker()">← เปลี่ยนเดือน</button>
       <button class="btn btn-primary" onclick="saveIncomeScreenshot()">📸 บันทึกรูป</button>
     </div>
+  </div>
+ </div>
+</div>
+
+<!-- ===== DIAGNOSTIC SHEET ===== -->
+<div class="overlay" id="diagOverlay" onclick="handleDiagClick(event)">
+ <div class="sheet" style="padding:0 0 24px">
+  <div class="sheet-handle"></div>
+  <div style="padding:16px 20px 0">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+      <div style="font-size:18px;font-weight:700">🩺 ตรวจ sync · Diagnostic</div>
+      <button class="close-btn" onclick="closeDiagModal()">✕</button>
+    </div>
+  </div>
+  <div id="diagBody" style="padding:8px 20px 0;font-size:14px"></div>
+  <div style="padding:16px 20px 0;display:flex;gap:10px">
+    <button class="btn btn-primary" onclick="_runDiagnosticCheck(true)" style="flex:1">ตรวจอีกครั้ง</button>
+    <button class="btn" style="background:#e8f0fe;color:#2255cc" onclick="closeDiagModal()">ปิด</button>
   </div>
  </div>
 </div>
@@ -1147,6 +1167,130 @@ async function checkSyncStatus(){
 }
 if(typeof window !== 'undefined'){
   window.checkSyncStatus = checkSyncStatus;
+}
+
+/* Diagnostic UI — bottom-sheet modal + 5-min auto-check.
+   Auto-check runs silently in background; only updates the 🩺 button's
+   red-dot badge to surface drift. Tapping the button opens the sheet
+   with the last cached report (rendered instantly) and triggers a
+   fresh check in the background. */
+let _lastDiagReport = null;
+let _diagInterval = null;
+let _diagInProgress = false;
+
+function _fmtDiagTime(ts){
+  const d = new Date(ts);
+  return d.getHours()+':'+String(d.getMinutes()).padStart(2,'0')+':'+String(d.getSeconds()).padStart(2,'0');
+}
+function _renderDiagBody(report){
+  const body = document.getElementById('diagBody');
+  if(!body) return;
+  if(!report){
+    body.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-muted)">กำลังตรวจ...</div>';
+    return;
+  }
+  if(report.serverFetchError){
+    body.innerHTML = '<div style="color:#e74c3c;font-weight:600;margin:8px 0">❌ ดึงข้อมูล Supabase ไม่สำเร็จ</div>'
+      + '<div style="color:var(--text-muted);font-size:13px">'+report.serverFetchError+'</div>';
+    return;
+  }
+  const q = report.queueStats;
+  let drifts = q.total;
+  for(const t of Object.values(report.tables||{})){
+    drifts += t.localOnly.length + t.serverOnly.length + t.divergent.length;
+  }
+  const verdict = report.inSync
+    ? '<div style="color:#1a6b5a;font-size:16px;font-weight:700;margin:6px 0">✅ Local และ Supabase ตรงกัน</div>'
+    : '<div style="color:#c87100;font-size:16px;font-weight:700;margin:6px 0">⚠️ พบ drift '+drifts+' รายการ</div>';
+  const tsLine = report._checkedAt
+    ? '<div style="color:var(--text-muted);font-size:12px;margin-bottom:10px">ตรวจล่าสุด: '+_fmtDiagTime(report._checkedAt)+'</div>'
+    : '';
+  const queueLine = '<div style="margin:8px 0;font-size:13px"><b>Queue:</b> '+q.pending+' pending · '+q.error+' error · '+q.conflict+' conflict</div>';
+  const tableLabels = { clinics:'คลินิก', shifts:'Shifts (เวร)', hanging_fees:'ค่าแขวนป้าย', user_lists:'Lists' };
+  let tableRows = '<table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:6px">'
+    + '<thead><tr style="border-bottom:1px solid var(--border);text-align:left">'
+    + '<th style="padding:4px 0">ตาราง</th>'
+    + '<th style="padding:4px 0;text-align:right">local</th>'
+    + '<th style="padding:4px 0;text-align:right">server</th>'
+    + '<th style="padding:4px 0;text-align:right">drift</th>'
+    + '</tr></thead><tbody>';
+  const driftDetails = [];
+  for(const [name, t] of Object.entries(report.tables||{})){
+    const driftCnt = t.localOnly.length + t.serverOnly.length + t.divergent.length;
+    const driftCell = driftCnt === 0
+      ? '<span style="color:#1a6b5a">ตรง</span>'
+      : '<span style="color:#c87100;font-weight:600">'+driftCnt+'</span>';
+    tableRows += '<tr><td style="padding:4px 0">'+(tableLabels[name]||name)+'</td>'
+      + '<td style="padding:4px 0;text-align:right">'+t.local+'</td>'
+      + '<td style="padding:4px 0;text-align:right">'+t.server+'</td>'
+      + '<td style="padding:4px 0;text-align:right">'+driftCell+'</td></tr>';
+    if(t.localOnly.length)  driftDetails.push('<b>'+(tableLabels[name]||name)+' · localOnly:</b> '+t.localOnly.join(', '));
+    if(t.serverOnly.length) driftDetails.push('<b>'+(tableLabels[name]||name)+' · serverOnly:</b> '+t.serverOnly.join(', '));
+    if(t.divergent.length)  driftDetails.push('<b>'+(tableLabels[name]||name)+' · divergent:</b> '+t.divergent.join(', '));
+  }
+  tableRows += '</tbody></table>';
+  const details = driftDetails.length
+    ? '<div style="margin-top:10px;padding:8px;background:var(--bg);border-radius:8px;font-size:12px;color:var(--text-muted)">'+driftDetails.join('<br>')+'</div>'
+    : '';
+  body.innerHTML = verdict + tsLine + queueLine + tableRows + details;
+}
+
+function openDiagModal(){
+  const ov = document.getElementById('diagOverlay');
+  if(!ov) return;
+  ov.classList.add('open');
+  document.body.style.overflow = 'hidden';
+  /* Render cached report immediately (or loading state), then trigger
+     a fresh check in the background — feels instant. */
+  _renderDiagBody(_lastDiagReport);
+  _runDiagnosticCheck(true);
+}
+function closeDiagModal(){
+  const ov = document.getElementById('diagOverlay');
+  if(ov) ov.classList.remove('open');
+  document.body.style.overflow = '';
+}
+function handleDiagClick(e){
+  if(e.target === document.getElementById('diagOverlay')) closeDiagModal();
+}
+
+async function _runDiagnosticCheck(showLoading){
+  if(_diagInProgress) return _lastDiagReport;
+  if(typeof navigator !== 'undefined' && navigator.onLine === false) return _lastDiagReport;
+  if(!sbReady()) return _lastDiagReport;
+  _diagInProgress = true;
+  if(showLoading) _renderDiagBody(null);
+  try{
+    const report = await checkSyncStatus();
+    if(report){
+      report._checkedAt = Date.now();
+      _lastDiagReport = report;
+      /* Update button badge */
+      const btn = document.getElementById('headerDiagBtn');
+      if(btn){
+        if(report.inSync) btn.classList.remove('has-drift');
+        else              btn.classList.add('has-drift');
+      }
+      /* Re-render modal if open */
+      const ov = document.getElementById('diagOverlay');
+      if(ov && ov.classList.contains('open')) _renderDiagBody(report);
+    }
+    return report;
+  } finally {
+    _diagInProgress = false;
+  }
+}
+
+function startDiagAutoCheck(){
+  if(_diagInterval) return;
+  _diagInterval = setInterval(() => { _runDiagnosticCheck(false); }, 5 * 60 * 1000);
+}
+
+if(typeof window !== 'undefined'){
+  window.openDiagModal = openDiagModal;
+  window.closeDiagModal = closeDiagModal;
+  window.handleDiagClick = handleDiagClick;
+  window.startDiagAutoCheck = startDiagAutoCheck;
 }
 
 /* Step 3 — per-entry exponential backoff. After failure attempt N
@@ -1636,13 +1780,17 @@ async function unlockSupabaseAuth(){
     cacheOnly = sessionStorage.getItem('cacheOnlyReload') === '1';
     if(cacheOnly) sessionStorage.removeItem('cacheOnlyReload');
   }catch(e){}
-  if(cacheOnly) return;
+  if(cacheOnly){
+    startDiagAutoCheck();
+    return;
+  }
   try{
     await pullFromSupabase();
   }catch(e){
     console.warn('pullFromSupabase failed on unlock:', e);
     showSyncBanner('⚠️ ดึงข้อมูลจาก Supabase ไม่สำเร็จ — แสดงข้อมูลจาก cache ในเครื่อง · จะ sync ใหม่เมื่อเชื่อมต่อได้');
   }
+  startDiagAutoCheck();
 }
 async function initSupabaseAuth(){
   if(readRecoverySession()){
