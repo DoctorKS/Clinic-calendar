@@ -2429,14 +2429,15 @@ function calcPreview(){
 
   /* procFee logic (corrected):
      - sum all specialDfPrice for procs with specialDf=true in this patient
-     - deduct that sum from coursePrice → "normalBase"
+     - deduct machine total and that special sum from coursePrice → "normalBase"
      - normalBase × procPct% = global DF for this patient
      - each special proc: specialDfPrice × specialDfPct% = its own DF
-     This prevents double-counting. */
+     This prevents double-counting machine revenue and special DF rows. */
   let procFee=0;
   let specialDfFee=0;
   patients.forEach(pat=>{
     const coursePrice=parseFloat(pat.coursePrice)||0;
+    const machineTotal=(pat.machs||[]).reduce((sum,r)=>sum+(parseFloat(r.price)||0),0);
     let specialPriceSum=0;
     pat.procs.forEach(pr=>{
       if(pr.specialDf){
@@ -2448,7 +2449,7 @@ function calcPreview(){
         specialDfFee+=sfix>0 ? sfix : sp*(spct/100);
       }
     });
-    const normalBase=Math.max(0,coursePrice-specialPriceSum);
+    const normalBase=Math.max(0,coursePrice-machineTotal-specialPriceSum);
     procFee+=normalBase*(procPct/100);
   });
   let machFee=0;
@@ -2511,6 +2512,7 @@ async function saveDay(){
   let machFee=0;
   const savedPats=patients.filter(hasPatientData).map(pat=>{
     const coursePrice=parseFloat(pat.coursePrice)||0;
+    const machineTotal=(pat.machs||[]).reduce((sum,r)=>sum+(parseFloat(r.price)||0),0);
     let specialPriceSum=0;
     const procs=pat.procs.map(pr=>{
       let sdf=0;
@@ -2524,7 +2526,7 @@ async function saveDay(){
       }
       return{...pr,specialDfFee:sdf};
     });
-    const normalBase=Math.max(0,coursePrice-specialPriceSum);
+    const normalBase=Math.max(0,coursePrice-machineTotal-specialPriceSum);
     const fee=normalBase*(procPct/100);
     procFee+=fee;
     const machs=(pat.machs||[]).filter(r=>r.name||r.price||r.amount).map(r=>{
