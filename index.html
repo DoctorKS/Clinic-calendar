@@ -94,6 +94,13 @@ body{font-family:'Sarabun',sans-serif;background:var(--bg);color:var(--text);min
 
 .overlay{display:none;position:fixed;inset:0;background:rgba(15,30,25,.45);z-index:200;align-items:flex-end;justify-content:center}
 .overlay.open{display:flex}
+.confirm-overlay{display:none;position:fixed;inset:0;background:rgba(15,30,25,.5);z-index:12000;align-items:center;justify-content:center;padding:20px}
+.confirm-overlay.open{display:flex}
+.confirm-box{width:100%;max-width:360px;background:#fff;border-radius:12px;box-shadow:0 18px 48px rgba(0,0,0,.24);padding:18px}
+.confirm-title{font-size:16px;font-weight:800;color:var(--text);margin-bottom:8px}
+.confirm-msg{font-size:14px;color:var(--text-muted);line-height:1.55;white-space:pre-line;margin-bottom:16px}
+.confirm-actions{display:flex;gap:10px}
+.confirm-actions .btn{padding:12px}
 .sheet{background:var(--card);border-radius:24px 24px 0 0;width:100%;max-width:var(--sheet-max);padding:0 0 40px;animation:slideUp .28s cubic-bezier(.34,1.56,.64,1);max-height:92vh;overflow-y:auto}
 @keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
 .sheet-handle{width:40px;height:4px;background:var(--border);border-radius:2px;margin:12px auto 0}
@@ -541,6 +548,17 @@ body.auth-locked .auth-overlay{display:flex}
     <button class="btn btn-primary" onclick="saveDay()">บันทึก ✓</button>
   </div>
  </div>
+</div>
+
+<div class="confirm-overlay" id="machinePriceConfirm">
+  <div class="confirm-box">
+    <div class="confirm-title">ยืนยันการบันทึก</div>
+    <div class="confirm-msg" id="machinePriceConfirmMsg"></div>
+    <div class="confirm-actions">
+      <button class="btn" style="background:#eef3f6;color:var(--text-muted)" type="button" onclick="resolveMachinePriceConfirm(false)">กลับไปแก้ไข</button>
+      <button class="btn btn-primary" type="button" onclick="resolveMachinePriceConfirm(true)">ยืนยัน</button>
+    </div>
+  </div>
 </div>
 
 <!-- ===== PROCEDURE PICKER ===== -->
@@ -1923,6 +1941,52 @@ function hasProcData(pr){
 function hasPatientData(pat){
   return !!(pat&&(pat.coursePrice||(pat.procs||[]).some(hasProcData)||(pat.machs||[]).some(r=>r.name||r.price||r.amount)));
 }
+function patientMachRows(pat){
+  return (pat.machs||[]).filter(r=>r.name||r.price||r.amount);
+}
+function isMachineOnlyPatient(pat){
+  return patientMachRows(pat).length>0&&!(pat.procs||[]).some(hasProcData);
+}
+function patientMachineTotal(pat){
+  return patientMachRows(pat).reduce((sum,r)=>sum+(parseFloat(r.price)||0),0);
+}
+function patientMachineDfBase(pat){
+  const coursePrice=parseFloat(pat.coursePrice)||0;
+  if(isMachineOnlyPatient(pat)&&coursePrice>0) return coursePrice;
+  return patientMachineTotal(pat);
+}
+function findMissingMachinePrice(){
+  for(let pi=0;pi<patients.length;pi++){
+    const pat=patients[pi];
+    const hasMachines=patientMachRows(pat).length>0;
+    const hasProcs=(pat.procs||[]).some(hasProcData);
+    const needsWarning=hasMachines&&(hasProcs||(!(parseFloat(pat.coursePrice)||0)));
+    if(!needsWarning) continue;
+    const machs=pat.machs||[];
+    for(let mi=0;mi<machs.length;mi++){
+      const row=machs[mi];
+      if((row.name||row.amount||row.price)&&!String(row.price||'').trim()) return{pi,mi};
+    }
+  }
+  return null;
+}
+let machinePriceConfirmResolve=null;
+function confirmMissingMachinePrice(missing){
+  const overlay=document.getElementById('machinePriceConfirm');
+  const msg=document.getElementById('machinePriceConfirmMsg');
+  if(!overlay||!msg) return Promise.resolve(confirm(`ท่านยังไม่ได้กรอกข้อมูลค่าเครื่อง คนไข้คนที่ ${missing.pi+1} เครื่องที่ ${missing.mi+1}\nยืนยันการบันทึก`));
+  msg.textContent=`ท่านยังไม่ได้กรอกข้อมูลค่าเครื่อง คนไข้คนที่ ${missing.pi+1} เครื่องที่ ${missing.mi+1}\nยืนยันการบันทึก`;
+  overlay.classList.add('open');
+  return new Promise(resolve=>{machinePriceConfirmResolve=resolve;});
+}
+function resolveMachinePriceConfirm(ok){
+  const overlay=document.getElementById('machinePriceConfirm');
+  if(overlay) overlay.classList.remove('open');
+  if(machinePriceConfirmResolve){
+    machinePriceConfirmResolve(!!ok);
+    machinePriceConfirmResolve=null;
+  }
+}
 /* Flush all live DOM values back into patients[] */
 function flushAll(){
   patients.forEach((pat,pi)=>{
@@ -2437,7 +2501,7 @@ function calcPreview(){
   let specialDfFee=0;
   patients.forEach(pat=>{
     const coursePrice=parseFloat(pat.coursePrice)||0;
-    const machineTotal=(pat.machs||[]).reduce((sum,r)=>sum+(parseFloat(r.price)||0),0);
+    const machineTotal=patientMachineDfBase(pat);
     let specialPriceSum=0;
     pat.procs.forEach(pr=>{
       if(pr.specialDf){
@@ -2449,11 +2513,13 @@ function calcPreview(){
         specialDfFee+=sfix>0 ? sfix : sp*(spct/100);
       }
     });
-    const normalBase=Math.max(0,coursePrice-machineTotal-specialPriceSum);
-    procFee+=normalBase*(procPct/100);
+    if((pat.procs||[]).some(hasProcData)){
+      const normalBase=Math.max(0,coursePrice-machineTotal-specialPriceSum);
+      procFee+=normalBase*(procPct/100);
+    }
   });
   let machFee=0;
-  patients.forEach(pat=>(pat.machs||[]).forEach(r=>{machFee+=(parseFloat(r.price)||0)*(machPct/100);}));
+  patients.forEach(pat=>{machFee+=patientMachineDfBase(pat)*(machPct/100);});
 
   const totalProcFee=procFee+specialDfFee;
   const earned=sitting+totalProcFee+machFee;
@@ -2499,6 +2565,15 @@ function calcPreview(){
 async function saveDay(){
   if(!selectedDay)return;
   flushAll();
+  const missingMachinePrice=findMissingMachinePrice();
+  if(missingMachinePrice){
+    const confirmed=await confirmMissingMachinePrice(missingMachinePrice);
+    if(!confirmed){
+      const el=document.getElementById(`mp_${missingMachinePrice.pi}_${missingMachinePrice.mi}`);
+      if(el) el.focus();
+      return;
+    }
+  }
   const hourRate=parseFloat(document.getElementById('inHourRate').value)||0;
   const hours=parseFloat(document.getElementById('inHours').value)||0;
   const lump=parseFloat(document.getElementById('inLump').value)||0;
@@ -2512,7 +2587,7 @@ async function saveDay(){
   let machFee=0;
   const savedPats=patients.filter(hasPatientData).map(pat=>{
     const coursePrice=parseFloat(pat.coursePrice)||0;
-    const machineTotal=(pat.machs||[]).reduce((sum,r)=>sum+(parseFloat(r.price)||0),0);
+    const machineTotal=patientMachineDfBase(pat);
     let specialPriceSum=0;
     const procs=pat.procs.map(pr=>{
       let sdf=0;
@@ -2526,11 +2601,16 @@ async function saveDay(){
       }
       return{...pr,specialDfFee:sdf};
     });
-    const normalBase=Math.max(0,coursePrice-machineTotal-specialPriceSum);
-    const fee=normalBase*(procPct/100);
+    const fee=(pat.procs||[]).some(hasProcData)
+      ? Math.max(0,coursePrice-machineTotal-specialPriceSum)*(procPct/100)
+      : 0;
     procFee+=fee;
-    const machs=(pat.machs||[]).filter(r=>r.name||r.price||r.amount).map(r=>{
-      const machRowFee=(parseFloat(r.price)||0)*(machPct/100);
+    const machineDfBase=patientMachineDfBase(pat);
+    const machineRowTotal=patientMachineTotal(pat);
+    const machs=(pat.machs||[]).filter(r=>r.name||r.price||r.amount).map((r,ri)=>{
+      const price=parseFloat(r.price)||0;
+      const share=machineRowTotal>0 ? price/machineRowTotal : 0;
+      const machRowFee=machineDfBase*(machPct/100)*(machineRowTotal>0 ? share : (ri===0 ? 1 : 0));
       machFee+=machRowFee;
       return{name:r.name||'',price:r.price||'',amount:r.amount||'',fee:machRowFee};
     });
