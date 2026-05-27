@@ -561,6 +561,16 @@ body.auth-locked .auth-overlay{display:flex}
   </div>
 </div>
 
+<div class="confirm-overlay" id="offlineConfirm">
+  <div class="confirm-box">
+    <div class="confirm-title">ยังไม่มีเน็ต</div>
+    <div class="confirm-msg">ยังไม่มีเน็ตอย่าปัด App ทิ้งนะงับ</div>
+    <div class="confirm-actions" style="justify-content:flex-end">
+      <button class="btn btn-primary" type="button" onclick="closeOfflineConfirm()">ยืนยัน</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== PROCEDURE PICKER ===== -->
 <div class="picker-overlay" id="procPicker" onclick="handlePickerClick(event)">
   <div class="picker-sheet">
@@ -756,7 +766,7 @@ body.auth-locked .auth-overlay{display:flex}
     </div>
   </div>
   <div id="diagBody" style="padding:8px 20px 0;font-size:14px"></div>
-  <div style="padding:16px 20px 0;display:flex;gap:10px">
+  <div id="diagActions" style="padding:16px 20px 0;display:flex;gap:10px">
     <button class="btn btn-primary" onclick="_runDiagnosticCheck(true)" style="flex:1">ตรวจอีกครั้ง</button>
     <button class="btn" style="background:#e8f0fe;color:#2255cc" onclick="closeDiagModal()">ปิด</button>
   </div>
@@ -1104,7 +1114,7 @@ async function checkSyncStatus(){
     if(!Number.isFinite(y) || !Number.isFinite(m)) return;
     const dat = getData(y, m);
     Object.entries(dat).forEach(([day, dd]) => {
-      if(!dd || !dd.total) return;
+      if(!hasShiftData(dd)) return;
       const dateStr = `${y}-${String(m+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
       localShifts[dateStr] = dd;
     });
@@ -1195,6 +1205,8 @@ if(typeof window !== 'undefined'){
 let _lastDiagReport = null;
 let _diagInterval = null;
 let _diagInProgress = false;
+let _diagPromptOpen = false;
+let _offlinePromptOpen = false;
 
 function _fmtDiagTime(ts){
   const d = new Date(ts);
@@ -1253,9 +1265,23 @@ function _renderDiagBody(report){
   body.innerHTML = verdict + tsLine + queueLine + tableRows + details;
 }
 
-function openDiagModal(){
+function _renderDiagActions(mode){
+  const actions = document.getElementById('diagActions');
+  if(!actions) return;
+  if(mode === 'upload'){
+    actions.style.justifyContent = 'flex-end';
+    actions.innerHTML = '<button class="btn btn-primary" onclick="uploadDiagLocalToSupabase()">อัพเดทข้อมูลขึ้น supabase</button>';
+    return;
+  }
+  actions.style.justifyContent = '';
+  actions.innerHTML = '<button class="btn btn-primary" onclick="_runDiagnosticCheck(true)" style="flex:1">ตรวจอีกครั้ง</button>'
+    + '<button class="btn" style="background:#e8f0fe;color:#2255cc" onclick="closeDiagModal()">ปิด</button>';
+}
+
+function openDiagModal(mode){
   const ov = document.getElementById('diagOverlay');
   if(!ov) return;
+  _renderDiagActions(mode === 'upload' ? 'upload' : 'default');
   ov.classList.add('open');
   document.body.style.overflow = 'hidden';
   /* Render cached report immediately (or loading state), then trigger
@@ -1266,6 +1292,7 @@ function openDiagModal(){
 function closeDiagModal(){
   const ov = document.getElementById('diagOverlay');
   if(ov) ov.classList.remove('open');
+  _diagPromptOpen = false;
   document.body.style.overflow = '';
 }
 function handleDiagClick(e){
@@ -1289,6 +1316,7 @@ async function _runDiagnosticCheck(showLoading){
         if(report.inSync) btn.classList.remove('has-drift');
         else              btn.classList.add('has-drift');
       }
+      if(report.inSync) _diagPromptOpen = false;
       /* Re-render modal if open */
       const ov = document.getElementById('diagOverlay');
       if(ov && ov.classList.contains('open')) _renderDiagBody(report);
@@ -1301,7 +1329,41 @@ async function _runDiagnosticCheck(showLoading){
 
 function startDiagAutoCheck(){
   if(_diagInterval) return;
-  _diagInterval = setInterval(() => { _runDiagnosticCheck(false); }, 5 * 60 * 1000);
+  _diagInterval = setInterval(() => { checkConnectionAndSync(); }, 5 * 60 * 1000);
+}
+
+function isAppOnline(){
+  return typeof navigator === 'undefined' || navigator.onLine !== false;
+}
+function closeOfflineConfirm(){
+  const ov = document.getElementById('offlineConfirm');
+  if(ov) ov.classList.remove('open');
+  _offlinePromptOpen = false;
+}
+function showOfflineConfirm(){
+  if(_offlinePromptOpen) return;
+  const ov = document.getElementById('offlineConfirm');
+  if(!ov) return;
+  _offlinePromptOpen = true;
+  ov.classList.add('open');
+}
+async function checkConnectionAndSync(){
+  if(!isAppOnline()){
+    showOfflineConfirm();
+    return null;
+  }
+  closeOfflineConfirm();
+  const report = await _runDiagnosticCheck(false);
+  if(report && !report.inSync && !_diagPromptOpen){
+    _diagPromptOpen = true;
+    openDiagModal('upload');
+  }
+  return report;
+}
+async function uploadDiagLocalToSupabase(){
+  await syncLocalToSupabase();
+  const report = await _runDiagnosticCheck(true);
+  if(report && report.inSync) closeDiagModal();
 }
 
 if(typeof window !== 'undefined'){
@@ -1309,6 +1371,11 @@ if(typeof window !== 'undefined'){
   window.closeDiagModal = closeDiagModal;
   window.handleDiagClick = handleDiagClick;
   window.startDiagAutoCheck = startDiagAutoCheck;
+  window.closeOfflineConfirm = closeOfflineConfirm;
+  window.uploadDiagLocalToSupabase = uploadDiagLocalToSupabase;
+  window.checkConnectionAndSync = checkConnectionAndSync;
+  window.addEventListener('offline', showOfflineConfirm);
+  window.addEventListener('online', () => { checkConnectionAndSync(); });
 }
 
 /* Step 3 — per-entry exponential backoff. After failure attempt N
@@ -1483,6 +1550,15 @@ function sbLoadSession(){
    ===================================================== */
 const sk=(y,m)=>`clinic_${y}_${m}`;
 const getData=(y,m)=>{try{return JSON.parse(appGetItem(sk(y,m))||'{}')}catch(e){return{}}};
+function hasShiftData(dd){
+  if(!dd) return false;
+  if((parseFloat(dd.total)||0)||(parseFloat(dd.sitting)||0)||(parseFloat(dd.procFee)||0)||(parseFloat(dd.machFee)||0)||(parseFloat(dd.lump)||0)) return true;
+  if(dd.clinicId||dd.condition||dd.paidSitting||dd.paidDf) return true;
+  const hasProc = pr => !!(pr&&(pr.name||pr.tradeName||pr.amount||pr.specialDf||pr.specialDfPct||pr.specialDfPrice||pr.specialDfFixed));
+  const hasMach = r => !!(r&&(r.name||r.price||r.amount||r.fee));
+  if((dd.machs||[]).some(hasMach)) return true;
+  return (dd.patients||[]).some(pat=>!!(pat&&(pat.coursePrice||(pat.procs||[]).some(hasProc)||(pat.machs||[]).some(hasMach))));
+}
 
 async function saveData(y,m,d){
   /* Local-First (CLAUDE.md Step 2): cache write is instant + durable.
@@ -1493,7 +1569,7 @@ async function saveData(y,m,d){
     return true;
   }
   Object.entries(d).forEach(([day, dd])=>{
-    if(!dd||!dd.total) return;
+    if(!hasShiftData(dd)) return;
     const dateStr = `${y}-${String(m+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
     enqueue('shifts','upsert',{
       shift_date: dateStr, clinic_id: dd.clinicId||null,
@@ -1800,6 +1876,7 @@ async function unlockSupabaseAuth(){
   }catch(e){}
   if(cacheOnly){
     startDiagAutoCheck();
+    setTimeout(checkConnectionAndSync, 800);
     return;
   }
   try{
@@ -1809,6 +1886,7 @@ async function unlockSupabaseAuth(){
     showSyncBanner('⚠️ ดึงข้อมูลจาก Supabase ไม่สำเร็จ — แสดงข้อมูลจาก cache ในเครื่อง · จะ sync ใหม่เมื่อเชื่อมต่อได้');
   }
   startDiagAutoCheck();
+  setTimeout(checkConnectionAndSync, 800);
 }
 async function initSupabaseAuth(){
   if(readRecoverySession()){
@@ -1898,7 +1976,7 @@ function renderCalendar(){
     const cell=document.createElement('div');const dow=(firstDay+d-1)%7;
     let cls='day-cell';if(dow===0)cls+=' sunday';if(dow===6)cls+=' saturday';
     if(d===today.getDate()&&curMonth===today.getMonth()&&curYear===today.getFullYear())cls+=' today';
-    const dd=data[d];if(dd&&dd.total>0)cls+=' has-data';cell.className=cls;
+    const dd=data[d];if(hasShiftData(dd))cls+=' has-data';cell.className=cls;
     const numEl=document.createElement('div');numEl.className='day-num';numEl.textContent=d;cell.appendChild(numEl);
     if(dd&&dd.total>0){const inc=document.createElement('div');inc.className='day-income';inc.textContent=fmtC(dd.total);cell.appendChild(inc);}
     if(dd&&dd.clinicId){const cl=getClinics().find(c=>c.id===dd.clinicId);if(cl){const b=document.createElement('div');b.className='day-clinic-badge';b.textContent=cl.abbr;b.style.background=cl.color;cell.appendChild(b);}}
@@ -3199,7 +3277,7 @@ async function syncLocalToSupabase(){
       if(baseKey.startsWith('clinic_')){
         const dat=getData(y,m);
         Object.entries(dat).forEach(([day,dd])=>{
-          if(!dd||!dd.total) return;
+          if(!hasShiftData(dd)) return;
           const dateStr=`${y}-${String(m+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
           enqueue('shifts','upsert',{
             shift_date: dateStr, clinic_id: dd.clinicId||null,
