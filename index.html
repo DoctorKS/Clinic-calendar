@@ -915,6 +915,15 @@ function saveSyncQueue(queue){
   }
 }
 
+function _syncQueueStats(queue=loadSyncQueue()){
+  return {
+    pending:  queue.filter(e => e.state === 'PENDING').length,
+    error:    queue.filter(e => e.state === 'ERROR').length,
+    conflict: queue.filter(e => e.state === 'CONFLICT').length,
+    total:    queue.length
+  };
+}
+
 function enqueue(table, operation, payload, conflictKey){
   if(!_syncQueueKey()) return null;
   /* Step 4a LWW: stamp updated_at on the payload so the next pull can
@@ -1040,8 +1049,9 @@ async function resolveConflictsInteractively(){
 }
 
 /* Diagnostic: compare local cache + sync queue against Supabase and
-   report any drift. Read-only — does not modify cache, queue, or
-   server. Exposed as window.checkSyncStatus() for DevTools use. */
+   report any drift. It may cleanup stale CONFLICT queue entries when
+   local/server equivalence is deterministic, but does not delete app
+   data. Exposed as window.checkSyncStatus() for DevTools use. */
 function _comparableClinic(c){
   return JSON.stringify({
     name: c.name || '', abbr: c.abbr || '', color: c.color || '',
@@ -1073,19 +1083,92 @@ function _comparableShift(s){
     paidDf:      !!(s.paidDf      ?? s.paid_df)
   });
 }
+function _serverRowForQueueEntry(entry, serverState){
+  const p = entry && entry.payload || {};
+  if(entry.table === 'shifts')       return (serverState.shifts||[]).find(r => r.shift_date === p.shift_date);
+  if(entry.table === 'clinics')      return (serverState.cls||[]).find(r => r.id === p.id);
+  if(entry.table === 'hanging_fees') return (serverState.hangs||[]).find(r => r.year_month === p.year_month);
+  if(entry.table === 'user_lists')   return (serverState.lists||[]).find(r => r.list_name === p.list_name);
+  return null;
+}
+function _queueEntryMatchesServer(entry, serverRow){
+  if(!entry || !serverRow) return false;
+  const p = entry.payload || {};
+  if(entry.table === 'shifts') return _comparableShift(p) === _comparableShift(serverRow);
+  if(entry.table === 'clinics') return _comparableClinic(p) === _comparableClinic(serverRow);
+  if(entry.table === 'hanging_fees') return Math.abs((parseFloat(p.amount)||0) - (parseFloat(serverRow.amount)||0)) < 0.001;
+  if(entry.table === 'user_lists') return JSON.stringify(p.items||[]) === JSON.stringify(serverRow.items||[]);
+  return false;
+}
+function _tsMs(v){
+  const n = Date.parse(v || '');
+  return Number.isFinite(n) ? n : null;
+}
+async function autoResolveSyncQueueConflicts(serverState={}, opts={}){
+  const acceptServerNewer = !!opts.acceptServerNewer;
+  const flushDemoted = opts.flushDemoted !== false;
+  const queue = loadSyncQueue();
+  let changed = false;
+  let demoted = 0;
+  let dropped = 0;
+  const next = [];
+  for(const entry of queue){
+    if(entry.state !== 'CONFLICT'){
+      next.push(entry);
+      continue;
+    }
+    const serverRow = _serverRowForQueueEntry(entry, serverState) || entry.serverPayload || null;
+    if(!serverRow){
+      entry.state = 'PENDING';
+      entry.retryCount = 0;
+      entry.nextAttemptAt = 0;
+      delete entry.serverPayload;
+      delete entry.conflictDetectedAt;
+      next.push(entry);
+      changed = true;
+      demoted++;
+      continue;
+    }
+    if(_queueEntryMatchesServer(entry, serverRow)){
+      changed = true;
+      dropped++;
+      continue;
+    }
+    const localTs = _tsMs(entry.payload && entry.payload.updated_at);
+    const serverTs = _tsMs(serverRow.updated_at);
+    if(localTs !== null && serverTs !== null && localTs > serverTs){
+      entry.state = 'PENDING';
+      entry.retryCount = 0;
+      entry.nextAttemptAt = 0;
+      delete entry.serverPayload;
+      delete entry.conflictDetectedAt;
+      next.push(entry);
+      changed = true;
+      demoted++;
+      continue;
+    }
+    if(acceptServerNewer && localTs !== null && serverTs !== null && serverTs > localTs){
+      changed = true;
+      dropped++;
+      continue;
+    }
+    next.push(entry);
+  }
+  if(changed){
+    saveSyncQueue(next);
+    console.info('Auto sync conflict cleanup:', {dropped, demoted, remainingConflicts:_syncQueueStats(next).conflict});
+    _updateSyncBanner(next);
+    if(demoted && flushDemoted) flushSyncQueue();
+  }
+  return {changed, dropped, demoted, remainingConflicts:_syncQueueStats(next).conflict};
+}
 async function checkSyncStatus(){
   if(!sbReady()){
     console.warn('checkSyncStatus: not logged in to Supabase');
     return null;
   }
   /* 1. Queue stats. */
-  const queue = loadSyncQueue();
-  const queueStats = {
-    pending:  queue.filter(e => e.state === 'PENDING').length,
-    error:    queue.filter(e => e.state === 'ERROR').length,
-    conflict: queue.filter(e => e.state === 'CONFLICT').length,
-    total:    queue.length
-  };
+  let queueStats = _syncQueueStats();
   /* 2. Fetch server state. */
   let cls, shifts, hangs, lists;
   let serverFetchError = null;
@@ -1103,6 +1186,8 @@ async function checkSyncStatus(){
   shifts = shifts || [];
   hangs  = hangs  || [];
   lists  = lists  || [];
+  await autoResolveSyncQueueConflicts({cls,shifts,hangs,lists}, {acceptServerNewer:false});
+  queueStats = _syncQueueStats();
   /* 3. Build local maps keyed the same way as server primary keys. */
   const localClinics = {};
   getClinics().forEach(c => { localClinics[c.id] = c; });
@@ -1347,16 +1432,39 @@ function showOfflineConfirm(){
   _offlinePromptOpen = true;
   ov.classList.add('open');
 }
+function _reportCount(report, prop){
+  let n = 0;
+  for(const t of Object.values(report?.tables||{})) n += (t[prop]||[]).length;
+  return n;
+}
 async function checkConnectionAndSync(){
   if(!isAppOnline()){
     showOfflineConfirm();
     return null;
   }
   closeOfflineConfirm();
-  const report = await _runDiagnosticCheck(false);
+  let report = await _runDiagnosticCheck(false);
+  if(!report) return report;
+  if(report.queueStats.pending || report.queueStats.error){
+    await flushSyncQueue();
+    report = await _runDiagnosticCheck(false);
+  }
+  let localOnly = _reportCount(report, 'localOnly');
+  let serverOnly = _reportCount(report, 'serverOnly');
+  let divergent = _reportCount(report, 'divergent');
+  if(report && localOnly > 0 && serverOnly === 0 && divergent === 0 && report.queueStats.conflict === 0){
+    await syncLocalToSupabase();
+    report = await _runDiagnosticCheck(false);
+  } else if(report && serverOnly > 0 && localOnly === 0 && divergent === 0 && report.queueStats.conflict === 0){
+    await pullFromSupabase();
+    report = await _runDiagnosticCheck(false);
+  }
+  localOnly = _reportCount(report, 'localOnly');
+  serverOnly = _reportCount(report, 'serverOnly');
+  divergent = _reportCount(report, 'divergent');
   if(report && !report.inSync && !_diagPromptOpen){
     _diagPromptOpen = true;
-    openDiagModal('upload');
+    openDiagModal(localOnly > 0 ? 'upload' : 'default');
   }
   return report;
 }
@@ -1759,6 +1867,8 @@ async function pullFromSupabase(){
     });
   }
 
+  await autoResolveSyncQueueConflicts({cls,shifts,hangs,lists}, {acceptServerNewer:true});
+
   /* Step 4b: surface any newly-marked CONFLICT entries via the banner.
      _updateSyncBanner handles the no-queue case by calling hideSyncBanner. */
   _updateSyncBanner(loadSyncQueue());
@@ -2065,6 +2175,7 @@ function resolveMachinePriceConfirm(ok){
     machinePriceConfirmResolve=null;
   }
 }
+
 /* Flush all live DOM values back into patients[] */
 function flushAll(){
   patients.forEach((pat,pi)=>{
