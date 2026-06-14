@@ -136,3 +136,63 @@ Clinic-calendar/
 ---
 
 *Personal project · ใช้งานส่วนตัว*
+
+---
+
+## Auto Sync Conflict Resolution Procedure
+
+The app should resolve normal sync queue conflicts automatically. Users should not have to tap through hundreds of conflict dialogs. The reusable procedure is documented in [`AUTO_SYNC_CONFLICT_RESOLUTION_PROCEDURE.md`](AUTO_SYNC_CONFLICT_RESOLUTION_PROCEDURE.md).
+
+### Goal
+
+- Keep the app local-first: save locally immediately, sync to Supabase in the background.
+- Hide internal queue mechanics from normal users.
+- Automatically clean stale conflict queue entries when local and Supabase already match.
+- Ask the user only when the app cannot safely decide between local and server data.
+
+### Standard Flow
+
+```mermaid
+flowchart TD
+  A["App opens / save completes / network returns"] --> B["Hydrate local cache and load sync queue"]
+  B --> C["Run silent Supabase diagnostic in background"]
+  C --> D{"Queue has entries?"}
+
+  D -->|No| E{"Local and Supabase match?"}
+  D -->|Yes| F{"Queue state?"}
+
+  F -->|Pending or Error| G["Retry queue flush automatically"]
+  G --> C
+
+  F -->|Conflict| H{"Local/server row now equivalent?"}
+  H -->|Yes| I["Auto-delete stale conflict entry"]
+  I --> C
+
+  H -->|No| J{"Local updated_at newer?"}
+  J -->|Yes| K["Demote conflict to pending and push local"]
+  K --> C
+
+  J -->|No| L{"Server updated_at newer?"}
+  L -->|Yes| M["Accept server and remove conflict entry"]
+  M --> N["Pull server row into local cache"]
+  N --> C
+
+  L -->|Tie but values differ| O["Keep as unresolved conflict"]
+  O --> P["Show one concise user prompt only for true unresolved cases"]
+
+  E -->|Yes| Q["Show synced state; no popup"]
+  E -->|No| R{"Local-only data exists?"}
+  R -->|Yes| S["Push local data to Supabase automatically"]
+  S --> C
+  R -->|No| T["Pull Supabase data into local cache"]
+  T --> C
+```
+
+### User-visible behavior
+
+- If offline, show only: `ยังไม่มีเน็ตอย่าปัด App ทิ้งนะงับ`.
+- If back online, sync runs automatically.
+- If conflicts are stale and data already matches, the queue is cleaned automatically.
+- If local data is newer, the app pushes local changes automatically.
+- If server data is newer, the app pulls server data automatically.
+- The diagnostic window is a debug/manual recovery tool, not the normal sync workflow.

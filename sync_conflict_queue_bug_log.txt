@@ -1,0 +1,57 @@
+Bug Log: Stale Sync Conflict Queue Requires Manual Resolution
+Date: 2026-06-14
+Project: Clinic-calendar
+
+Summary
+-------
+The app displayed a diagnostic warning with a large conflict queue count
+(example: 848 CONFLICT entries) even when the diagnostic table showed that
+local and Supabase row counts matched for clinics, shifts, hanging fees,
+and user lists.
+
+Observed User Impact
+--------------------
+- User saw "พบ conflict 848 รายการ" and had to tap conflict resolution one
+  item at a time.
+- This is not acceptable for normal application UX.
+- The diagnostic table could show local/server as "ตรง" while the queue
+  still counted old CONFLICT entries as drift.
+- User could not quickly clear the stale queue without developer-level
+  knowledge.
+
+Likely Cause
+------------
+- Queue entries marked as CONFLICT were not automatically re-evaluated
+  after local and server data became equivalent.
+- The existing interactive resolver walks every conflict entry and asks
+  the user to choose local/server individually.
+- Old conflict entries can accumulate after repeated pull/push cycles or
+  multi-device edits.
+
+Expected Standard Behavior
+--------------------------
+- Normal users should not manage raw sync queue entries.
+- If local and server data already match, stale CONFLICT entries should be
+  deleted automatically.
+- If local is newer, queue entries should be demoted to PENDING and pushed.
+- If server is newer, server should be accepted and the queue entry removed.
+- Only true unresolved conflicts should reach a user prompt.
+
+Resolution Procedure
+--------------------
+Documented in:
+AUTO_SYNC_CONFLICT_RESOLUTION_PROCEDURE.md
+
+Recommended Next Implementation
+-------------------------------
+1. Add an automatic stale-conflict cleanup function.
+2. Run it after diagnostics, after pull, after queue flush, and when
+   network connectivity returns.
+3. Keep the Diagnostic UI as a debug/manual recovery tool.
+4. Remove or hide large raw conflict counts from normal user flow unless
+   unresolved conflicts remain.
+
+Current Status
+--------------
+Documentation and procedure were added first so future implementation can
+follow a stable flow instead of ad-hoc queue clearing.

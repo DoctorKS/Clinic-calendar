@@ -316,3 +316,41 @@ and Supabase remains the durable cross-device source.
 
 This is a deliberate reversal of `ac8472a`. Treat it as a standing
 decision, not a default to revisit.
+
+---
+
+## Auto Sync Conflict Resolution Guardrail
+
+Normal users must not be asked to resolve every sync queue conflict one
+by one. The standard target procedure is documented in
+`AUTO_SYNC_CONFLICT_RESOLUTION_PROCEDURE.md` and must be followed for all
+future sync/conflict work.
+
+### Required default behavior
+
+1. Run sync diagnostics silently in the background after app unlock, after
+   a save, when network connectivity returns, and on the scheduled
+   diagnostic interval.
+2. If local and Supabase rows are already equivalent, delete stale
+   `CONFLICT` queue entries automatically.
+3. If local has a newer `updated_at`, demote the conflict to `PENDING`,
+   bump the timestamp only when needed, and push local to Supabase.
+4. If server has a newer `updated_at`, accept the server row, remove the
+   conflict queue entry, and pull server data into local cache.
+5. If timestamps tie but values differ, keep only those entries as true
+   unresolved conflicts and show one concise prompt or diagnostic notice.
+
+### UX rule
+
+The app may show simple status such as `saved`, `syncing`, `synced`,
+`waiting for internet`, or a single unresolved-conflict notice. It should
+not show large raw queue counts as normal workflow, and it should never
+force the user to tap through hundreds of confirm dialogs.
+
+### Implementation rule
+
+Any future edits touching `resolveConflictsInteractively`,
+`checkSyncStatus`, `flushSyncQueue`, `pullFromSupabase`, or
+`syncLocalToSupabase` must preserve automatic stale-conflict cleanup.
+Diagnostic/manual buttons may remain for support, but they are not the
+primary user path.
