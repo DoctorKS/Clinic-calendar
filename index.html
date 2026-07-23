@@ -264,15 +264,6 @@ body{font-family:'Sarabun',sans-serif;background:var(--bg);color:var(--text);min
 .picker-add-form{padding:12px 20px;border-top:1px solid var(--border)}
 .picker-add-input{width:100%;padding:11px 14px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:15px;font-family:'Sarabun',sans-serif;color:var(--text);background:var(--bg);outline:none;margin-bottom:8px;-webkit-appearance:none}
 .picker-add-input:focus{border-color:var(--primary-mid);background:#fff}
-.picker-special-row{display:none;margin:0 0 10px;padding:10px 11px;background:#e8f5f1;border:1.5px solid var(--primary-mid);border-radius:9px}
-.picker-special-row.show{display:block}
-.picker-special-toggle{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:700;color:var(--primary);cursor:pointer;user-select:none;margin-bottom:8px}
-.picker-special-toggle input{width:16px;height:16px;accent-color:var(--primary);cursor:pointer}
-.picker-special-fields{display:none;grid-template-columns:1fr auto 1fr;align-items:end;gap:8px}
-.picker-special-fields.show{display:grid}
-.picker-special-field label{display:block;font-size:10px;font-weight:700;color:var(--primary);margin-bottom:4px;text-transform:uppercase;letter-spacing:.4px}
-.picker-special-field .input-suffix input{padding:8px 28px 8px 10px;font-size:13px}
-.picker-special-or{font-size:11px;font-weight:700;color:var(--text-muted);padding-bottom:10px}
 .picker-add-btn{width:100%;padding:12px;border-radius:var(--radius-sm);background:var(--primary);color:#fff;font-size:15px;font-weight:700;font-family:'Sarabun',sans-serif;border:none;cursor:pointer}
 
 /* CLINIC MANAGER */
@@ -591,29 +582,6 @@ body.auth-locked .auth-overlay{display:flex}
     <div class="picker-list" id="pickerList"></div>
     <div class="picker-add-form" id="pickerAddForm" style="display:none">
       <input class="picker-add-input" id="pickerNewName" placeholder="ชื่อหัตถการ / เครื่อง">
-      <div class="picker-special-row" id="pickerSpecialRow">
-        <label class="picker-special-toggle" for="pickerSpecialDf">
-          <input type="checkbox" id="pickerSpecialDf" onchange="onPickerSpecialDfChange(this.checked)">
-          <span>DF พิเศษ</span>
-        </label>
-        <div class="picker-special-fields" id="pickerSpecialFields">
-          <div class="picker-special-field">
-            <label>% DF</label>
-            <div class="input-suffix">
-              <input class="form-input" id="pickerSpecialPct" type="number" inputmode="decimal" min="0" max="100" placeholder="เช่น 15" oninput="onPickerSpecialPctInput(this.value)">
-              <span class="suffix-label">%</span>
-            </div>
-          </div>
-          <div class="picker-special-or">หรือ</div>
-          <div class="picker-special-field">
-            <label>DF Fixed</label>
-            <div class="input-suffix">
-              <input class="form-input" id="pickerSpecialFixed" type="number" inputmode="decimal" min="0" placeholder="เช่น 500" oninput="onPickerSpecialFixedInput(this.value)">
-              <span class="suffix-label">฿</span>
-            </div>
-          </div>
-        </div>
-      </div>
       <button class="picker-add-btn" onclick="confirmAddPickerItem()">เพิ่ม ✓</button>
     </div>
   </div>
@@ -1248,8 +1216,7 @@ async function checkSyncStatus(){
   const localLists = {
     proc_list:  getProcList(),
     mach_list:  getMachList(),
-    trade_list: getTradeList(),
-    proc_df_specials: getProcDfSpecials()
+    trade_list: getTradeList()
   };
   /* 4. Build server maps + diff per table. */
   const serverClinics = {};
@@ -1696,7 +1663,7 @@ function hasShiftData(dd){
   if((parseFloat(dd.total)||0)||(parseFloat(dd.sitting)||0)||(parseFloat(dd.procFee)||0)||(parseFloat(dd.machFee)||0)||(parseFloat(dd.lump)||0)) return true;
   if(dd.clinicId||dd.condition||dd.paidSitting||dd.paidDf) return true;
   const hasProc = pr => !!(pr&&(pr.name||pr.tradeName||pr.amount||pr.specialDf||pr.specialDfPct||pr.specialDfPrice||pr.specialDfFixed));
-  const hasMach = r => !!(r&&(r.name||r.price||r.amount||r.fee));
+  const hasMach = r => !!(r&&(r.name||r.price||r.amount||r.fee||r.specialDf||r.specialDfPct||r.specialDfFixed));
   if((dd.machs||[]).some(hasMach)) return true;
   return (dd.patients||[]).some(pat=>!!(pat&&(pat.coursePrice||(pat.procs||[]).some(hasProc)||(pat.machs||[]).some(hasMach))));
 }
@@ -1751,33 +1718,6 @@ async function saveProcList(arr){
   enqueue('user_lists','upsert',{list_name:'proc_list',items:arr},'user_id,list_name');
   flushSyncQueue();
   return true;
-}
-const getProcDfSpecials=()=>{
-  try{
-    const s=JSON.parse(appGetItem('proc_df_specials')||'[]');
-    return Array.isArray(s)?s.filter(x=>x&&x.name):[];
-  }catch(e){return[]}
-};
-async function saveProcDfSpecials(arr){
-  appSetItem('proc_df_specials',JSON.stringify(arr));
-  if(!sbReady()) return true;
-  enqueue('user_lists','upsert',{list_name:'proc_df_specials',items:arr},'user_id,list_name');
-  flushSyncQueue();
-  return true;
-}
-function getProcDfSpecial(name){
-  const key=(name||'').trim();
-  if(!key) return null;
-  return getProcDfSpecials().find(x=>x.name===key)||null;
-}
-function upsertProcDfSpecial(name,pct='',fixed=''){
-  const key=(name||'').trim();
-  if(!key) return;
-  const next=getProcDfSpecials().filter(x=>x.name!==key);
-  if((pct||fixed)){
-    next.push({name:key,specialDfPct:pct||'',specialDfFixed:fixed||''});
-  }
-  saveProcDfSpecials(next);
 }
 
 const getMachList=()=>{try{const s=JSON.parse(appGetItem('mach_list')||'[]');return s.length?s:[...DEFAULT_MACHS]}catch(e){return[...DEFAULT_MACHS]}};
@@ -2173,24 +2113,27 @@ async function onHangingInput(){
 }
 
 /* ===== PATIENT / PROCEDURE DATA HELPERS ===== */
-function newMach(){return{name:'',price:'',amount:''};}
+function newMach(){return{name:'',price:'',amount:'',specialDf:false,specialDfPct:'',specialDfFixed:''};}
 function newProc(){return{name:'',tradeName:'',amount:'',specialDf:false,specialDfPct:'',specialDfPrice:'',specialDfFixed:''};}
 function newPatient(){return{procs:[newProc()],machs:[],coursePrice:''};}
 function normalizePatient(pat){
   return{
     ...pat,
     procs:(pat.procs&&pat.procs.length)?pat.procs:[newProc()],
-    machs:pat.machs?pat.machs.map(r=>({name:r.name||'',price:r.price||'',amount:r.amount||''})):[]
+    machs:pat.machs?pat.machs.map(r=>({name:r.name||'',price:r.price||'',amount:r.amount||'',specialDf:!!r.specialDf,specialDfPct:r.specialDfPct||'',specialDfFixed:r.specialDfFixed||''})):[]
   };
 }
 function hasProcData(pr){
   return !!(pr&&(pr.name||pr.tradeName||pr.amount||pr.specialDf||pr.specialDfPct||pr.specialDfPrice||pr.specialDfFixed));
 }
+function hasMachData(r){
+  return !!(r&&(r.name||r.price||r.amount||r.specialDf||r.specialDfPct||r.specialDfFixed));
+}
 function hasPatientData(pat){
-  return !!(pat&&(pat.coursePrice||(pat.procs||[]).some(hasProcData)||(pat.machs||[]).some(r=>r.name||r.price||r.amount)));
+  return !!(pat&&(pat.coursePrice||(pat.procs||[]).some(hasProcData)||(pat.machs||[]).some(hasMachData)));
 }
 function patientMachRows(pat){
-  return (pat.machs||[]).filter(r=>r.name||r.price||r.amount);
+  return (pat.machs||[]).filter(hasMachData);
 }
 function isMachineOnlyPatient(pat){
   return patientMachRows(pat).length>0&&!(pat.procs||[]).some(hasProcData);
@@ -2202,6 +2145,29 @@ function patientMachineDfBase(pat){
   const coursePrice=parseFloat(pat.coursePrice)||0;
   if(isMachineOnlyPatient(pat)&&coursePrice>0) return coursePrice;
   return patientMachineTotal(pat);
+}
+function patientMachineFeeParts(pat,machPct){
+  const rows=patientMachRows(pat);
+  const machineDfBase=patientMachineDfBase(pat);
+  const machineRowTotal=patientMachineTotal(pat);
+  let normalBase=machineDfBase;
+  let specialFee=0;
+  rows.forEach((row,ri)=>{
+    if(!row.specialDf) return;
+    const price=parseFloat(row.price)||0;
+    const pct=parseFloat(row.specialDfPct)||0;
+    const fixed=parseFloat(row.specialDfFixed)||0;
+    const fallbackSingleBase=(machineRowTotal<=0&&rows.length===1)?machineDfBase:0;
+    const specialBase=price>0?price:fallbackSingleBase;
+    specialFee+=fixed>0?fixed:specialBase*(pct/100);
+    if(machineRowTotal>0){
+      normalBase-=machineDfBase*(price/machineRowTotal);
+    }else if(rows.length===1){
+      normalBase=0;
+    }
+  });
+  const normalFee=Math.max(0,normalBase)*(machPct/100);
+  return{normalFee,specialFee,total:normalFee+specialFee};
 }
 function findMissingMachinePrice(){
   for(let pi=0;pi<patients.length;pi++){
@@ -2262,9 +2228,15 @@ function flushAll(){
       const n=document.getElementById(`mn_${pi}_${mi}`);
       const p=document.getElementById(`mp_${pi}_${mi}`);
       const a=document.getElementById(`ma_${pi}_${mi}`);
+      const chk=document.getElementById(`mdfchk_${pi}_${mi}`);
+      const spct=document.getElementById(`mdfpct_${pi}_${mi}`);
+      const sfix=document.getElementById(`mdffix_${pi}_${mi}`);
       if(n) r.name=n.value;
       if(p) r.price=p.value;
       if(a) r.amount=a.value;
+      if(chk) r.specialDf=chk.checked;
+      if(spct) r.specialDfPct=spct.value;
+      if(sfix) r.specialDfFixed=sfix.value;
     });
   });
 }
@@ -2562,6 +2534,7 @@ function deleteSubProc(pi,si,e){
 function buildPatientMach(pi,mi,row){
   const card=document.createElement('div');
   card.className='machine-row-card';
+  const isSpecial=!!row.specialDf;
   card.innerHTML=`
       <div class="machine-row-header">
         <span class="machine-row-num">เครื่อง ${mi+1}</span>
@@ -2590,11 +2563,81 @@ function buildPatientMach(pi,mi,row){
             style="border-color:#9bb7ff;padding-right:34px">
           <span class="proc-price-suffix">หน่วย</span>
         </div>
+      </div>
+      <label class="special-df-toggle" for="mdfchk_${pi}_${mi}">
+        <input type="checkbox" id="mdfchk_${pi}_${mi}"
+          ${isSpecial?'checked':''}
+          onchange="toggleSpecialMachDf(${pi},${mi},this.checked)">
+        <span class="special-df-toggle-label">DF พิเศษ</span>
+      </label>
+      <div class="special-df-row" id="mdfrow_${pi}_${mi}" style="display:${isSpecial?'block':'none'}">
+        <div class="special-df-two-col">
+          <div class="special-df-col">
+            <div class="special-df-col-label">% DF เครื่องนี้</div>
+            <div class="special-df-inner">
+              <input class="special-df-input" id="mdfpct_${pi}_${mi}"
+                type="number" inputmode="decimal" min="0" max="100"
+                placeholder="เช่น 15"
+                value="${row.specialDfPct||''}"
+                oninput="onSpecialMachDfPctInput(${pi},${mi},this.value)"
+                ${row.specialDfFixed?'disabled':''}>
+              <span class="special-df-suffix">%</span>
+            </div>
+          </div>
+          <div class="special-df-divider-or">หรือ</div>
+          <div class="special-df-col">
+            <div class="special-df-col-label">DF Fixed (บาท)</div>
+            <div class="special-df-inner" style="width:100%">
+              <input class="special-df-input" id="mdffix_${pi}_${mi}"
+                type="number" inputmode="decimal" min="0"
+                placeholder="เช่น 500"
+                value="${row.specialDfFixed||''}"
+                oninput="onSpecialMachDfFixInput(${pi},${mi},this.value)"
+                ${row.specialDfPct?'disabled':''}>
+              <span class="special-df-suffix">฿</span>
+            </div>
+          </div>
+        </div>
+        <div class="special-df-note" id="mdfnote_${pi}_${mi}">${buildSpecialMachDfNote(row)}</div>
       </div>`;
   return card;
 }
 function syncPatientMach(pi,mi,field,val){
   if(patients[pi]&&patients[pi].machs&&patients[pi].machs[mi]) patients[pi].machs[mi][field]=val;
+}
+function toggleSpecialMachDf(pi,mi,checked){
+  flushAll();
+  if(!patients[pi]||!patients[pi].machs||!patients[pi].machs[mi]) return;
+  patients[pi].machs[mi].specialDf=checked;
+  if(!checked){
+    patients[pi].machs[mi].specialDfPct='';
+    patients[pi].machs[mi].specialDfFixed='';
+  }
+  renderPatients();
+  calcPreview();
+}
+function buildSpecialMachDfNote(row){
+  if(row.specialDfFixed) return `DF คงที่ = ฿${parseFloat(row.specialDfFixed).toLocaleString('th-TH')} (ไม่คิดจาก % DF เครื่องด้านบน)`;
+  if(row.specialDfPct) return `คิด DF ${row.specialDfPct}% × ราคาเครื่องนี้`;
+  return 'เลือก % DF หรือ DF Fixed อย่างใดอย่างหนึ่ง';
+}
+function onSpecialMachDfPctInput(pi,mi,val){
+  syncPatientMach(pi,mi,'specialDfPct',val);
+  syncPatientMach(pi,mi,'specialDfFixed','');
+  const fixEl=document.getElementById(`mdffix_${pi}_${mi}`);
+  const note=document.getElementById(`mdfnote_${pi}_${mi}`);
+  if(fixEl){fixEl.disabled=!!val;if(val)fixEl.value='';}
+  if(note) note.textContent=buildSpecialMachDfNote({specialDfPct:val,specialDfFixed:''});
+  calcPreview();
+}
+function onSpecialMachDfFixInput(pi,mi,val){
+  syncPatientMach(pi,mi,'specialDfFixed',val);
+  syncPatientMach(pi,mi,'specialDfPct','');
+  const pctEl=document.getElementById(`mdfpct_${pi}_${mi}`);
+  const note=document.getElementById(`mdfnote_${pi}_${mi}`);
+  if(pctEl){pctEl.disabled=!!val;if(val)pctEl.value='';}
+  if(note) note.textContent=buildSpecialMachDfNote({specialDfPct:'',specialDfFixed:val});
+  calcPreview();
 }
 function delPatientMach(pi,mi,e){
   e.stopPropagation();
@@ -2612,53 +2655,18 @@ function openProcPicker(type,patIdx,subIdx){
   document.getElementById('pickerTitle').textContent=type==='proc'?'เลือกหัตถการ':'เลือกชื่อเครื่อง';
   document.getElementById('pickerAddForm').style.display='none';
   document.getElementById('pickerNewName').value='';
-  resetPickerSpecialDf();
   renderPickerList();
   document.getElementById('procPicker').classList.add('open');
 }
 function closePicker(){document.getElementById('procPicker').classList.remove('open');}
 function handlePickerClick(e){if(e.target===document.getElementById('procPicker'))closePicker();}
-function resetPickerSpecialDf(){
-  const row=document.getElementById('pickerSpecialRow');
-  const fields=document.getElementById('pickerSpecialFields');
-  const chk=document.getElementById('pickerSpecialDf');
-  const pct=document.getElementById('pickerSpecialPct');
-  const fix=document.getElementById('pickerSpecialFixed');
-  if(row) row.classList.toggle('show',pickerType==='proc');
-  if(fields) fields.classList.remove('show');
-  if(chk) chk.checked=false;
-  if(pct){pct.value='';pct.disabled=false;}
-  if(fix){fix.value='';fix.disabled=false;}
-}
-function onPickerSpecialDfChange(checked){
-  const fields=document.getElementById('pickerSpecialFields');
-  if(fields) fields.classList.toggle('show',!!checked);
-  if(!checked){
-    const pct=document.getElementById('pickerSpecialPct');
-    const fix=document.getElementById('pickerSpecialFixed');
-    if(pct){pct.value='';pct.disabled=false;}
-    if(fix){fix.value='';fix.disabled=false;}
-  }
-}
-function onPickerSpecialPctInput(val){
-  const fix=document.getElementById('pickerSpecialFixed');
-  if(fix) fix.disabled=!!val;
-}
-function onPickerSpecialFixedInput(val){
-  const pct=document.getElementById('pickerSpecialPct');
-  if(pct) pct.disabled=!!val;
-}
 
 function renderPickerList(){
   const list=document.getElementById('pickerList');list.innerHTML='';
   const items=pickerType==='proc'?getProcList():getMachList();
   const addBtn=document.createElement('div');addBtn.className='picker-item add-new';
   addBtn.innerHTML=`<span style="font-size:18px">＋</span><span>เพิ่ม${pickerType==='proc'?'หัตถการ':'เครื่อง'}ใหม่</span>`;
-  addBtn.onclick=()=>{
-    resetPickerSpecialDf();
-    document.getElementById('pickerAddForm').style.display='block';
-    document.getElementById('pickerNewName').focus();
-  };
+  addBtn.onclick=()=>{document.getElementById('pickerAddForm').style.display='block';document.getElementById('pickerNewName').focus();};
   list.appendChild(addBtn);
   items.forEach(name=>{
     const item=document.createElement('div');item.className='picker-item';
@@ -2672,20 +2680,7 @@ function selectPickerItem(name){
   flushAll();
   if(pickerType==='proc'){
     if(patients[pickerPatIdx]&&patients[pickerPatIdx].procs[pickerSubIdx]){
-      const pr=patients[pickerPatIdx].procs[pickerSubIdx];
-      const preset=getProcDfSpecial(name);
-      pr.name=name;
-      if(preset){
-        pr.specialDf=true;
-        pr.specialDfPct=preset.specialDfPct||'';
-        pr.specialDfFixed=preset.specialDfFixed||'';
-        pr.specialDfPrice='';
-      }else{
-        pr.specialDf=false;
-        pr.specialDfPct='';
-        pr.specialDfFixed='';
-        pr.specialDfPrice='';
-      }
+      patients[pickerPatIdx].procs[pickerSubIdx].name=name;
     }
   } else {
     if(patients[pickerPatIdx]&&patients[pickerPatIdx].machs&&patients[pickerPatIdx].machs[pickerSubIdx]){
@@ -2699,14 +2694,7 @@ function selectPickerItem(name){
 
 function confirmAddPickerItem(){
   const name=document.getElementById('pickerNewName').value.trim();if(!name)return;
-  if(pickerType==='proc'){
-    const l=getProcList();if(!l.includes(name)){l.push(name);saveProcList(l);}
-    if(document.getElementById('pickerSpecialDf')?.checked){
-      const pct=document.getElementById('pickerSpecialPct')?.value||'';
-      const fixed=document.getElementById('pickerSpecialFixed')?.value||'';
-      if(pct||fixed) upsertProcDfSpecial(name,pct,fixed);
-    }
-  }
+  if(pickerType==='proc'){const l=getProcList();if(!l.includes(name)){l.push(name);saveProcList(l);}}
   else{const l=getMachList();if(!l.includes(name)){l.push(name);saveMachList(l);}}
   selectPickerItem(name);
 }
@@ -2773,7 +2761,7 @@ function openSheet(day){
   } else {
     patients=[newPatient()];
   }
-  const legacyMachs=dd.machs?JSON.parse(JSON.stringify(dd.machs.map(r=>({name:r.name||'',price:r.price||'',amount:r.amount||''})))):[];
+  const legacyMachs=dd.machs?JSON.parse(JSON.stringify(dd.machs.map(r=>({name:r.name||'',price:r.price||'',amount:r.amount||'',specialDf:!!r.specialDf,specialDfPct:r.specialDfPct||'',specialDfFixed:r.specialDfFixed||''})))):[];
   const hasPatientMachs=patients.some(pat=>(pat.machs||[]).length);
   if(legacyMachs.length&&!hasPatientMachs) patients[0].machs=legacyMachs;
   renderPatients();
@@ -2823,14 +2811,19 @@ function calcPreview(){
     }
   });
   let machFee=0;
-  patients.forEach(pat=>{machFee+=patientMachineDfBase(pat)*(machPct/100);});
+  let specialMachDfFee=0;
+  patients.forEach(pat=>{
+    const parts=patientMachineFeeParts(pat,machPct);
+    machFee+=parts.total;
+    specialMachDfFee+=parts.specialFee;
+  });
 
   const totalProcFee=procFee+specialDfFee;
   const earned=sitting+totalProcFee+machFee;
 
   document.getElementById('rSitting').textContent=sitting>0?fmt(sitting):'—';
   document.getElementById('rProcFee').textContent=totalProcFee>0?fmt(totalProcFee)+(specialDfFee>0?` (รวม DF พิเศษ ${fmt(specialDfFee)})`:''): '—';
-  document.getElementById('rMachFee').textContent=machFee>0?fmt(machFee):'—';
+  document.getElementById('rMachFee').textContent=machFee>0?fmt(machFee)+(specialMachDfFee>0?` (รวม DF พิเศษ ${fmt(specialMachDfFee)})`:''):'—';
 
   let total=0;
   const banner=document.getElementById('guaranteeBanner');
@@ -2911,12 +2904,23 @@ async function saveDay(){
     procFee+=fee;
     const machineDfBase=patientMachineDfBase(pat);
     const machineRowTotal=patientMachineTotal(pat);
-    const machs=(pat.machs||[]).filter(r=>r.name||r.price||r.amount).map((r,ri)=>{
+    const machRows=(pat.machs||[]).filter(hasMachData);
+    const firstNormalMachineIndex=machRows.findIndex(r=>!r.specialDf);
+    const machs=machRows.map((r,ri)=>{
       const price=parseFloat(r.price)||0;
       const share=machineRowTotal>0 ? price/machineRowTotal : 0;
-      const machRowFee=machineDfBase*(machPct/100)*(machineRowTotal>0 ? share : (ri===0 ? 1 : 0));
+      let machRowFee=0;
+      if(r.specialDf){
+        const pct=parseFloat(r.specialDfPct)||0;
+        const fixed=parseFloat(r.specialDfFixed)||0;
+        const fallbackSingleBase=(machineRowTotal<=0&&machRows.length===1)?machineDfBase:0;
+        const specialBase=price>0?price:fallbackSingleBase;
+        machRowFee=fixed>0?fixed:specialBase*(pct/100);
+      }else{
+        machRowFee=machineDfBase*(machPct/100)*(machineRowTotal>0 ? share : (ri===firstNormalMachineIndex ? 1 : 0));
+      }
       machFee+=machRowFee;
-      return{name:r.name||'',price:r.price||'',amount:r.amount||'',fee:machRowFee};
+      return{name:r.name||'',price:r.price||'',amount:r.amount||'',specialDf:!!r.specialDf,specialDfPct:r.specialDfPct||'',specialDfFixed:r.specialDfFixed||'',fee:machRowFee};
     });
     return{...pat,procs,machs,fee};
   });
@@ -3489,7 +3493,6 @@ async function syncLocalToSupabase(){
     saveSyncQueue(reset);
     /* Then: enqueue current cache state for force-resync. */
     enqueue('user_lists','upsert',{list_name:'proc_list',items:getProcList()},'user_id,list_name');
-    enqueue('user_lists','upsert',{list_name:'proc_df_specials',items:getProcDfSpecials()},'user_id,list_name');
     enqueue('user_lists','upsert',{list_name:'mach_list',items:getMachList()},'user_id,list_name');
     enqueue('user_lists','upsert',{list_name:'trade_list',items:getTradeList()},'user_id,list_name');
     getClinics().forEach(cl=>enqueue('clinics','upsert',{
