@@ -264,6 +264,15 @@ body{font-family:'Sarabun',sans-serif;background:var(--bg);color:var(--text);min
 .picker-add-form{padding:12px 20px;border-top:1px solid var(--border)}
 .picker-add-input{width:100%;padding:11px 14px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:15px;font-family:'Sarabun',sans-serif;color:var(--text);background:var(--bg);outline:none;margin-bottom:8px;-webkit-appearance:none}
 .picker-add-input:focus{border-color:var(--primary-mid);background:#fff}
+.picker-special-row{display:none;margin:0 0 10px;padding:10px 11px;background:#e8f5f1;border:1.5px solid var(--primary-mid);border-radius:9px}
+.picker-special-row.show{display:block}
+.picker-special-toggle{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:700;color:var(--primary);cursor:pointer;user-select:none;margin-bottom:8px}
+.picker-special-toggle input{width:16px;height:16px;accent-color:var(--primary);cursor:pointer}
+.picker-special-fields{display:none;grid-template-columns:1fr auto 1fr;align-items:end;gap:8px}
+.picker-special-fields.show{display:grid}
+.picker-special-field label{display:block;font-size:10px;font-weight:700;color:var(--primary);margin-bottom:4px;text-transform:uppercase;letter-spacing:.4px}
+.picker-special-field .input-suffix input{padding:8px 28px 8px 10px;font-size:13px}
+.picker-special-or{font-size:11px;font-weight:700;color:var(--text-muted);padding-bottom:10px}
 .picker-add-btn{width:100%;padding:12px;border-radius:var(--radius-sm);background:var(--primary);color:#fff;font-size:15px;font-weight:700;font-family:'Sarabun',sans-serif;border:none;cursor:pointer}
 
 /* CLINIC MANAGER */
@@ -582,6 +591,29 @@ body.auth-locked .auth-overlay{display:flex}
     <div class="picker-list" id="pickerList"></div>
     <div class="picker-add-form" id="pickerAddForm" style="display:none">
       <input class="picker-add-input" id="pickerNewName" placeholder="ชื่อหัตถการ / เครื่อง">
+      <div class="picker-special-row" id="pickerSpecialRow">
+        <label class="picker-special-toggle" for="pickerSpecialDf">
+          <input type="checkbox" id="pickerSpecialDf" onchange="onPickerSpecialDfChange(this.checked)">
+          <span>DF พิเศษ</span>
+        </label>
+        <div class="picker-special-fields" id="pickerSpecialFields">
+          <div class="picker-special-field">
+            <label>% DF</label>
+            <div class="input-suffix">
+              <input class="form-input" id="pickerSpecialPct" type="number" inputmode="decimal" min="0" max="100" placeholder="เช่น 15" oninput="onPickerSpecialPctInput(this.value)">
+              <span class="suffix-label">%</span>
+            </div>
+          </div>
+          <div class="picker-special-or">หรือ</div>
+          <div class="picker-special-field">
+            <label>DF Fixed</label>
+            <div class="input-suffix">
+              <input class="form-input" id="pickerSpecialFixed" type="number" inputmode="decimal" min="0" placeholder="เช่น 500" oninput="onPickerSpecialFixedInput(this.value)">
+              <span class="suffix-label">฿</span>
+            </div>
+          </div>
+        </div>
+      </div>
       <button class="picker-add-btn" onclick="confirmAddPickerItem()">เพิ่ม ✓</button>
     </div>
   </div>
@@ -1216,7 +1248,8 @@ async function checkSyncStatus(){
   const localLists = {
     proc_list:  getProcList(),
     mach_list:  getMachList(),
-    trade_list: getTradeList()
+    trade_list: getTradeList(),
+    proc_df_specials: getProcDfSpecials()
   };
   /* 4. Build server maps + diff per table. */
   const serverClinics = {};
@@ -1718,6 +1751,33 @@ async function saveProcList(arr){
   enqueue('user_lists','upsert',{list_name:'proc_list',items:arr},'user_id,list_name');
   flushSyncQueue();
   return true;
+}
+const getProcDfSpecials=()=>{
+  try{
+    const s=JSON.parse(appGetItem('proc_df_specials')||'[]');
+    return Array.isArray(s)?s.filter(x=>x&&x.name):[];
+  }catch(e){return[]}
+};
+async function saveProcDfSpecials(arr){
+  appSetItem('proc_df_specials',JSON.stringify(arr));
+  if(!sbReady()) return true;
+  enqueue('user_lists','upsert',{list_name:'proc_df_specials',items:arr},'user_id,list_name');
+  flushSyncQueue();
+  return true;
+}
+function getProcDfSpecial(name){
+  const key=(name||'').trim();
+  if(!key) return null;
+  return getProcDfSpecials().find(x=>x.name===key)||null;
+}
+function upsertProcDfSpecial(name,pct='',fixed=''){
+  const key=(name||'').trim();
+  if(!key) return;
+  const next=getProcDfSpecials().filter(x=>x.name!==key);
+  if((pct||fixed)){
+    next.push({name:key,specialDfPct:pct||'',specialDfFixed:fixed||''});
+  }
+  saveProcDfSpecials(next);
 }
 
 const getMachList=()=>{try{const s=JSON.parse(appGetItem('mach_list')||'[]');return s.length?s:[...DEFAULT_MACHS]}catch(e){return[...DEFAULT_MACHS]}};
@@ -2552,18 +2612,53 @@ function openProcPicker(type,patIdx,subIdx){
   document.getElementById('pickerTitle').textContent=type==='proc'?'เลือกหัตถการ':'เลือกชื่อเครื่อง';
   document.getElementById('pickerAddForm').style.display='none';
   document.getElementById('pickerNewName').value='';
+  resetPickerSpecialDf();
   renderPickerList();
   document.getElementById('procPicker').classList.add('open');
 }
 function closePicker(){document.getElementById('procPicker').classList.remove('open');}
 function handlePickerClick(e){if(e.target===document.getElementById('procPicker'))closePicker();}
+function resetPickerSpecialDf(){
+  const row=document.getElementById('pickerSpecialRow');
+  const fields=document.getElementById('pickerSpecialFields');
+  const chk=document.getElementById('pickerSpecialDf');
+  const pct=document.getElementById('pickerSpecialPct');
+  const fix=document.getElementById('pickerSpecialFixed');
+  if(row) row.classList.toggle('show',pickerType==='proc');
+  if(fields) fields.classList.remove('show');
+  if(chk) chk.checked=false;
+  if(pct){pct.value='';pct.disabled=false;}
+  if(fix){fix.value='';fix.disabled=false;}
+}
+function onPickerSpecialDfChange(checked){
+  const fields=document.getElementById('pickerSpecialFields');
+  if(fields) fields.classList.toggle('show',!!checked);
+  if(!checked){
+    const pct=document.getElementById('pickerSpecialPct');
+    const fix=document.getElementById('pickerSpecialFixed');
+    if(pct){pct.value='';pct.disabled=false;}
+    if(fix){fix.value='';fix.disabled=false;}
+  }
+}
+function onPickerSpecialPctInput(val){
+  const fix=document.getElementById('pickerSpecialFixed');
+  if(fix) fix.disabled=!!val;
+}
+function onPickerSpecialFixedInput(val){
+  const pct=document.getElementById('pickerSpecialPct');
+  if(pct) pct.disabled=!!val;
+}
 
 function renderPickerList(){
   const list=document.getElementById('pickerList');list.innerHTML='';
   const items=pickerType==='proc'?getProcList():getMachList();
   const addBtn=document.createElement('div');addBtn.className='picker-item add-new';
   addBtn.innerHTML=`<span style="font-size:18px">＋</span><span>เพิ่ม${pickerType==='proc'?'หัตถการ':'เครื่อง'}ใหม่</span>`;
-  addBtn.onclick=()=>{document.getElementById('pickerAddForm').style.display='block';document.getElementById('pickerNewName').focus();};
+  addBtn.onclick=()=>{
+    resetPickerSpecialDf();
+    document.getElementById('pickerAddForm').style.display='block';
+    document.getElementById('pickerNewName').focus();
+  };
   list.appendChild(addBtn);
   items.forEach(name=>{
     const item=document.createElement('div');item.className='picker-item';
@@ -2577,7 +2672,20 @@ function selectPickerItem(name){
   flushAll();
   if(pickerType==='proc'){
     if(patients[pickerPatIdx]&&patients[pickerPatIdx].procs[pickerSubIdx]){
-      patients[pickerPatIdx].procs[pickerSubIdx].name=name;
+      const pr=patients[pickerPatIdx].procs[pickerSubIdx];
+      const preset=getProcDfSpecial(name);
+      pr.name=name;
+      if(preset){
+        pr.specialDf=true;
+        pr.specialDfPct=preset.specialDfPct||'';
+        pr.specialDfFixed=preset.specialDfFixed||'';
+        pr.specialDfPrice='';
+      }else{
+        pr.specialDf=false;
+        pr.specialDfPct='';
+        pr.specialDfFixed='';
+        pr.specialDfPrice='';
+      }
     }
   } else {
     if(patients[pickerPatIdx]&&patients[pickerPatIdx].machs&&patients[pickerPatIdx].machs[pickerSubIdx]){
@@ -2591,7 +2699,14 @@ function selectPickerItem(name){
 
 function confirmAddPickerItem(){
   const name=document.getElementById('pickerNewName').value.trim();if(!name)return;
-  if(pickerType==='proc'){const l=getProcList();if(!l.includes(name)){l.push(name);saveProcList(l);}}
+  if(pickerType==='proc'){
+    const l=getProcList();if(!l.includes(name)){l.push(name);saveProcList(l);}
+    if(document.getElementById('pickerSpecialDf')?.checked){
+      const pct=document.getElementById('pickerSpecialPct')?.value||'';
+      const fixed=document.getElementById('pickerSpecialFixed')?.value||'';
+      if(pct||fixed) upsertProcDfSpecial(name,pct,fixed);
+    }
+  }
   else{const l=getMachList();if(!l.includes(name)){l.push(name);saveMachList(l);}}
   selectPickerItem(name);
 }
@@ -3374,6 +3489,7 @@ async function syncLocalToSupabase(){
     saveSyncQueue(reset);
     /* Then: enqueue current cache state for force-resync. */
     enqueue('user_lists','upsert',{list_name:'proc_list',items:getProcList()},'user_id,list_name');
+    enqueue('user_lists','upsert',{list_name:'proc_df_specials',items:getProcDfSpecials()},'user_id,list_name');
     enqueue('user_lists','upsert',{list_name:'mach_list',items:getMachList()},'user_id,list_name');
     enqueue('user_lists','upsert',{list_name:'trade_list',items:getTradeList()},'user_id,list_name');
     getClinics().forEach(cl=>enqueue('clinics','upsert',{
