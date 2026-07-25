@@ -537,6 +537,7 @@ body.auth-locked .auth-overlay{display:flex}
     <div class="result-row"><span class="result-row-label">ค่านั่ง</span><span class="result-row-val" id="rSitting">—</span></div>
     <div class="result-row"><span class="result-row-label">Doctor Fee (หัตถการ)</span><span class="result-row-val" id="rProcFee">—</span></div>
     <div class="result-row"><span class="result-row-label">Doctor Fee (เครื่อง)</span><span class="result-row-val" id="rMachFee">—</span></div>
+    <div class="result-row"><span class="result-row-label">Doctor fee ทั้งหมด</span><span class="result-row-val" id="rDoctorFeeTotal">—</span></div>
     <div class="result-row" id="rowLump" style="display:none"><span class="result-row-label" id="rLumpLabel">ค่าเวรเหมา</span><span class="result-row-val" id="rLump">—</span></div>
     <div class="result-divider"></div>
     <div class="result-total-row"><span class="result-total-label">รวมทั้งหมด <span id="rCondTag" style="font-size:10px;font-weight:800;padding:2px 7px;border-radius:10px;margin-left:4px;display:none"></span></span><span class="result-total-val" id="rTotal">฿0</span></div>
@@ -2824,6 +2825,7 @@ function calcPreview(){
   document.getElementById('rSitting').textContent=sitting>0?fmt(sitting):'—';
   document.getElementById('rProcFee').textContent=totalProcFee>0?fmt(totalProcFee)+(specialDfFee>0?` (รวม DF พิเศษ ${fmt(specialDfFee)})`:''): '—';
   document.getElementById('rMachFee').textContent=machFee>0?fmt(machFee)+(specialMachDfFee>0?` (รวม DF พิเศษ ${fmt(specialMachDfFee)})`:''):'—';
+  document.getElementById('rDoctorFeeTotal').textContent=(totalProcFee+machFee)>0?fmt(totalProcFee+machFee):'—';
 
   let total=0;
   const banner=document.getElementById('guaranteeBanner');
